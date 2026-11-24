@@ -148,7 +148,7 @@ class AndroidTvChannelSyncService @Inject constructor(
         val filteredNextUp = nextUp
             .filter { it.hasAired }  // Never show unaired in launcher — can't be played
             .filter { cutoffMs == null || it.lastWatched >= cutoffMs }
-            .filter { nextUpDismissKey(it) !in settings.dismissedNextUp }
+            .filter { nextUpDismissKey(it) !in settings.dismissedNextUp && it.contentId !in settings.dismissedNextUp }
 
         // Deduplicate: in-progress wins over next-up for same contentId
         val inProgressContentIds = filteredInProgress.mapTo(mutableSetOf()) { it.contentId }
