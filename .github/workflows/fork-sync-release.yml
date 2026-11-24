@@ -1,0 +1,137 @@
+name: Fork - follow upstream releases
+
+# Every 6 hours: if NuvioMedia/NuvioTV published a release this fork has not built yet,
+# replay the fork's own commits on top of that release tag, build it, and publish it here
+# as "<tag>+fork". The app's in-app updater reads this repo (GITHUB_OWNER in local.properties),
+# and SemVer build metadata (+fork) is ignored when it compares versions.
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Upstream tag to build (empty = newest upstream release, beta included)
+        required: false
+        type: string
+      force:
+        description: Rebuild even if this fork already has the release
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fork-sync-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      UPSTREAM: NuvioMedia/NuvioTV
+    steps:
+      - name: Check out fork branch
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Pick upstream release
+        id: pick
+        run: |
+          tag="${{ inputs.tag }}"
+          if [[ -z "$tag" ]]; then
+            tag="$(gh api "repos/${UPSTREAM}/releases?per_page=10" --jq '[.[] | select(.draft | not)][0].tag_name')"
+          fi
+          [[ -n "$tag" && "$tag" != "null" ]] || { echo "No upstream release found" >&2; exit 1; }
+          fork_tag="${tag}+fork"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "fork_tag=$fork_tag" >> "$GITHUB_OUTPUT"
+          if [[ "${{ inputs.force }}" != "true" ]] && gh release view "$fork_tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Already built $fork_tag"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Replay fork commits on the upstream tag
+        if: steps.pick.outputs.skip == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --no-tags "https://github.com/${UPSTREAM}.git" \
+            "+refs/heads/dev:refs/remotes/upstream/dev" \
+            "+refs/tags/${{ steps.pick.outputs.tag }}:refs/remotes/upstream/release"
+          # Commits that only touch .github are fork plumbing, not app patches (and GITHUB_TOKEN
+          # may not push workflow changes), so they are not replayed. Keep app patches free of .github.
+          mapfile -t patches < <(git rev-list --reverse --no-merges refs/remotes/upstream/dev..HEAD -- . ':(exclude).github')
+          echo "Fork commits: ${#patches[@]}"
+          git checkout -B fork-build refs/remotes/upstream/release
+          if (( ${#patches[@]} > 0 )); then
+            git cherry-pick "${patches[@]}" || {
+              echo "::error::A fork commit no longer applies on ${{ steps.pick.outputs.tag }}. Rebase the fork branch by hand." >&2
+              git cherry-pick --abort; exit 1; }
+          fi
+
+      - name: Set up Java
+        if: steps.pick.outputs.skip == 'false'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        if: steps.pick.outputs.skip == 'false'
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Configure release properties
+        if: steps.pick.outputs.skip == 'false'
+        env:
+          LOCAL_PROPERTIES_BASE64: ${{ secrets.LOCAL_PROPERTIES_BASE64 }}
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.FORK_KEYSTORE_BASE64 }}
+          RELEASE_KEY_ALIAS: ${{ secrets.FORK_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.FORK_KEY_PASSWORD }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.FORK_STORE_PASSWORD }}
+        run: |
+          keystore_path="${RUNNER_TEMP}/fork-release.jks"
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
+          printf '%s' "$LOCAL_PROPERTIES_BASE64" | base64 --decode > local.properties
+          sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_[A-Z_]+)[[:space:]]*=/d' local.properties
+          {
+            echo
+            echo "NUVIO_RELEASE_STORE_FILE=$keystore_path"
+            echo "NUVIO_RELEASE_KEY_ALIAS=$RELEASE_KEY_ALIAS"
+            echo "NUVIO_RELEASE_KEY_PASSWORD=$RELEASE_KEY_PASSWORD"
+            echo "NUVIO_RELEASE_STORE_PASSWORD=$RELEASE_STORE_PASSWORD"
+          } >> local.properties
+          for p in TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET SUPABASE_URL SUPABASE_ANON_KEY GITHUB_OWNER; do
+            grep -Eq "^[[:space:]]*${p}[[:space:]]*=.+" local.properties || { echo "Missing $p" >&2; exit 1; }
+          done
+
+      - name: Fetch Usenet sidecars
+        if: steps.pick.outputs.skip == 'false'
+        run: |
+          python3 native/usenet/scripts/fetch_prebuilts.py
+          python3 native/usenet/scripts/check_prebuilts.py
+
+      - name: Build full release APKs
+        if: steps.pick.outputs.skip == 'false'
+        run: ./gradlew :app:assembleFullRelease --stacktrace
+
+      - name: Publish fork release
+        if: steps.pick.outputs.skip == 'false'
+        run: |
+          tag="${{ steps.pick.outputs.tag }}"
+          fork_tag="${{ steps.pick.outputs.fork_tag }}"
+          mapfile -t apks < <(find app/build/outputs/apk/full/release -maxdepth 1 -name '*.apk' | sort)
+          (( ${#apks[@]} > 0 )) || { echo "No APKs built" >&2; exit 1; }
+          gh release delete "$fork_tag" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag 2>/dev/null || true
+          git tag -f "$fork_tag"
+          git push -f origin "refs/tags/$fork_tag"
+          pre=""; [[ "$tag" == *-* ]] && pre="--prerelease"
+          gh release create "$fork_tag" "${apks[@]}" -R "$GITHUB_REPOSITORY" $pre \
+            --title "$tag (fork)" \
+            --notes "Upstream ${tag} + fork patches (RemoveProgressReceiver). Upstream notes: https://github.com/${UPSTREAM}/releases/tag/${tag}"
