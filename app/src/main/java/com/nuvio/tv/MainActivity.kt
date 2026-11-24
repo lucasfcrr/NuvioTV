@@ -483,7 +483,9 @@ open class MainActivity : ComponentActivity() {
             }
 
             var profileSwitchedManually by remember { mutableStateOf(false) }
-            val shouldAutoSelectProfile = rememberLastProfileEnabled &&
+            // Fork: opened from a Continue Watching card (launchContentId, fresh launches only), the card is the last
+            // profile's, so that profile opens without asking, as if "Remember last profile" were on.
+            val shouldAutoSelectProfile = (rememberLastProfileEnabled || launchContentId != null) &&
                 hasEverSelectedProfile && !activeProfileHasPin &&
                 !hasSelectedProfileThisSession && !profileSwitchedManually
             if (shouldAutoSelectProfile && !splashTriggered) {
