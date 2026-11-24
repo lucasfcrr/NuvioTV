@@ -3,6 +3,7 @@ package com.nuvio.tv.core.recommendations
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import com.nuvio.tv.core.sync.androidtv.resumePositionMs
 import androidx.tvprovider.media.tv.TvContractCompat
 import androidx.tvprovider.media.tv.WatchNextProgram
 import com.nuvio.tv.MainActivity
@@ -237,6 +238,11 @@ class ProgramBuilder @Inject constructor(
                 progress.season?.let { putExtra("season", it) }
                 progress.episode?.let { putExtra("episode", it) }
                 progress.episodeTitle?.let { putExtra("episodeTitle", it) }
+                // Fork: where it was left, for a cold start that never loads the progress (LaunchResumeHint)
+                resumePositionMs(progress).takeIf { it > 0L }?.let {
+                    putExtra(com.nuvio.tv.core.sync.androidtv.LaunchResumeHint.EXTRA_POSITION, it)
+                    putExtra(com.nuvio.tv.core.sync.androidtv.LaunchResumeHint.EXTRA_DURATION, progress.duration)
+                }
                 putExtra("launchMode", "stream")
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }.toUri(Intent.URI_INTENT_SCHEME)

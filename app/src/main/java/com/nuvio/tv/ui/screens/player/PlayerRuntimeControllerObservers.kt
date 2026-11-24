@@ -602,7 +602,22 @@ internal suspend fun PlayerRuntimeController.loadSavedProgressSuspend(season: In
     } else {
         watchProgressRepository.getProgress(progressContentId!!, profileId).firstOrNull()
     }
-    val progress = newerServerProgress(local)
+    // Fork: opened from a Continue Watching card on a cold start, the progress may not be loaded yet; the card's own
+    // position (LaunchResumeHint) stands in for it, so the title doesn't restart from the beginning.
+    val hint = if (isCloudLibraryPlayback) null
+        else com.nuvio.tv.core.sync.androidtv.LaunchResumeHint.take(progressContentId, season, episode)
+    val fromCard = if (hint != null && (local == null || !local.isInProgress())) {
+        currentWatchProgress(
+            progressContentId!!,
+            contentType ?: "movie",
+            hint.positionMs,
+            hint.durationMs,
+            System.currentTimeMillis()
+        ).also {
+            Log.d(PlayerRuntimeController.TAG, "loadSavedProgressSuspend: no saved progress, using the card's position=${hint.positionMs}")
+        }
+    } else local
+    val progress = newerServerProgress(fromCard)
 
     progress?.let { saved ->
         if (saved.isInProgress()) {
