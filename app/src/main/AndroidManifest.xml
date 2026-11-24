@@ -65,6 +65,14 @@
         </provider>
 
         <receiver
+            android:name=".core.sync.androidtv.RemoveProgressReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.nuvio.tv.action.REMOVE_PROGRESS" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
             android:name=".core.sync.androidtv.TvChannelBootReceiver"
             android:exported="true">
             <intent-filter>
