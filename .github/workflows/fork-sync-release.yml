@@ -1,4 +1,5 @@
 name: Fork - follow upstream releases
+# Secrets: LOCAL_PROPERTIES_BASE64, FORK_KEYSTORE_BASE64, FORK_KEY_ALIAS, FORK_KEY_PASSWORD, FORK_STORE_PASSWORD.
 
 # Every 6 hours: if NuvioMedia/NuvioTV published a release this fork has not built yet,
 # replay the fork's own commits on top of that release tag, build it, and publish it here
