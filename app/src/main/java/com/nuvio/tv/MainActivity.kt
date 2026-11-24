@@ -414,6 +414,7 @@ open class MainActivity : ComponentActivity() {
         val launchEpisode = intent?.getIntExtra("episode", -1)?.takeIf { it >= 0 }
         val launchEpisodeTitle = intent?.getStringExtra("episodeTitle")
         captureDeepLinkIntent(intent)
+        if (isFreshLaunch) com.nuvio.tv.core.sync.androidtv.LaunchResumeHint.capture(intent)   // fork
 
         setContent {
             var hasSelectedProfileThisSession by rememberSaveable { mutableStateOf(false) }
@@ -1389,6 +1390,7 @@ open class MainActivity : ComponentActivity() {
         setIntent(intent)
         captureDeepLinkIntent(intent)
         captureLaunchIntent(intent)
+        com.nuvio.tv.core.sync.androidtv.LaunchResumeHint.capture(intent)   // fork
     }
 
     private fun captureDeepLinkIntent(intent: Intent?) {
