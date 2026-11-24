@@ -108,7 +108,7 @@ jobs:
             echo "NUVIO_RELEASE_KEY_PASSWORD=$RELEASE_KEY_PASSWORD"
             echo "NUVIO_RELEASE_STORE_PASSWORD=$RELEASE_STORE_PASSWORD"
           } >> local.properties
-          for p in TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET SUPABASE_URL SUPABASE_ANON_KEY GITHUB_OWNER; do
+          for p in TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET NUVIO_SUPABASE_URL NUVIO_SUPABASE_ANON_KEY TMDB_API_KEY GITHUB_OWNER; do
             grep -Eq "^[[:space:]]*${p}[[:space:]]*=.+" local.properties || { echo "Missing $p" >&2; exit 1; }
           done
 
