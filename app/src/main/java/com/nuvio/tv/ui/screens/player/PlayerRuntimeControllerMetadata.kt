@@ -420,6 +420,9 @@ internal fun PlayerRuntimeController.evaluatePostPlayOverlayVisibility(positionM
     if (!shouldShow) return
 
     if (_uiState.value.postPlayDismissedForCurrentEpisode) return
+    android.util.Log.i(PlayerRuntimeController.TAG, "NEXT_CARD: pos=${positionMs / 1000}s dur=${effectiveDuration / 1000}s " +
+        "mode=$nextEpisodeThresholdModeSetting pct=$nextEpisodeThresholdPercentSetting min=$nextEpisodeThresholdMinutesBeforeEndSetting " +
+        "intervals=${skipIntervals.joinToString { it.type + "@" + it.startTime.toInt() + "-" + it.endTime.toInt() }}")
 
     val shouldEnterStillWatching = shouldEnterStillWatchingPrompt(
         stillWatchingEnabled = stillWatchingEnabledSetting,

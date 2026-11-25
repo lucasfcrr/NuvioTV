@@ -742,6 +742,7 @@ internal fun PlayerRuntimeController.fetchSkipIntervals(id: String?, season: Int
 
 /** Store API results and recompute the merged skipIntervals. */
 private fun PlayerRuntimeController.setApiSkipIntervals(api: List<SkipInterval>) {
+    Log.i("SkipIntro", "API skip intervals set: ${api.size} (${api.joinToString { it.type + "@" + it.startTime.toInt() }}) for $currentVideoId")
     apiSkipIntervals = api
     recomputeMergedSkipIntervals()
 }

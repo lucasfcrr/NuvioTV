@@ -96,8 +96,11 @@ class SkipIntroRepository @Inject constructor(
             if (introDbConfigured) fetchFromIntroDb(imdbId, season, episode) else emptyList()
         }
         // Resolve IMDB -> season-specific MAL/AniList via Simkl episode mapping
-        val simklIdsDeferred = async { simklResolver.resolveIdsForImdbEpisode(imdbId, season, episode) }
-        val simklIds = simklIdsDeferred.await()
+        // Fork: IntroDB's answer must not wait on the Simkl id lookup (the caller gives the whole fetch 15 s, and a
+        // slow Simkl left the list empty, so the next-episode card fell back to the very end of the file).
+        val simklIds = kotlinx.coroutines.withTimeoutOrNull(3_000L) {
+            runCatching { simklResolver.resolveIdsForImdbEpisode(imdbId, season, episode) }.getOrNull()
+        }
         val malId = simklIds?.mal
         val anilistId = simklIds?.anilist
 
@@ -118,11 +121,15 @@ class SkipIntroRepository @Inject constructor(
             if (anilistId != null) fetchFromAnimeSkip(anilistId, animeEpisode, season = null) else emptyList()
         }
 
-        return@coroutineScope mergeByPriority(
+        val merged = mergeByPriority(
             introDbDeferred.await(),
             aniSkipDeferred.await(),
             animeSkipDeferred.await()
-        ).also { cache[cacheKey] = it }
+        )
+        Log.i("SkipIntro", "$imdbId S${season}E${episode}: ${merged.size} intervals " +
+            merged.joinToString { "${it.type}@${it.startTime.toInt()}-${it.endTime.toInt()}(${it.provider})" })
+        if (merged.isNotEmpty()) cache[cacheKey] = merged
+        return@coroutineScope merged
     }
 
     suspend fun getSkipIntervalsForMal(
