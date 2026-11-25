@@ -76,13 +76,34 @@ object OpenSubtitlesHasher {
             requestBuilder.header("User-Agent", PlayerMediaSourceFactory.DEFAULT_USER_AGENT)
         }
 
-        return try {
+        val fromHead = try {
             client.newCall(requestBuilder.build()).execute().use { response ->
-                if (!response.isSuccessful) return null
+                if (!response.isSuccessful) return@use null
                 val lenStr = response.header("Content-Length")
                 val len = lenStr?.toLongOrNull() ?: response.body?.contentLength()
-                if (len == null) return null
-                if (len > 0) len else null
+                len?.takeIf { it > 0 }
+            }
+        } catch (_: Exception) {
+            null
+        }
+        return fromHead ?: contentLengthFromRange(url, headers, client)
+    }
+
+    /**
+     * Fork: StremThru's proxy answers HEAD with 405, so the size comes from a one-byte range GET
+     * ("Content-Range: bytes 0-0/<size>"); without it no hash was ever sent and the subtitle
+     * addons could not offer the subtitle made for this exact file.
+     */
+    private fun contentLengthFromRange(url: String, headers: Map<String, String>, client: OkHttpClient): Long? {
+        val builder = Request.Builder().url(url).get().header("Range", "bytes=0-0")
+        headers.forEach { (k, v) -> if (!k.equals("Range", ignoreCase = true)) builder.header(k, v) }
+        if (headers.none { it.key.equals("User-Agent", ignoreCase = true) }) {
+            builder.header("User-Agent", PlayerMediaSourceFactory.DEFAULT_USER_AGENT)
+        }
+        return try {
+            client.newCall(builder.build()).execute().use { response ->
+                if (response.code != 206) return@use null
+                response.header("Content-Range")?.substringAfterLast('/')?.trim()?.toLongOrNull()?.takeIf { it > 0 }
             }
         } catch (_: Exception) {
             null

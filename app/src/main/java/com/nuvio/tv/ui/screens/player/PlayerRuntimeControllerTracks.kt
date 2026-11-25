@@ -1145,7 +1145,7 @@ internal fun PlayerRuntimeController.applyPersistedTrackPreference(
                         )
                     } else {
                         val state = _uiState.value
-                        val addonFallback = state.addonSubtitles.firstOrNull { subtitle ->
+                        val addonFallback = rankAddonSubtitlesForRelease(state.addonSubtitles, currentFilename).firstOrNull { subtitle ->
                             PlayerSubtitleUtils.matchesLanguageCode(subtitle.lang, resolvedVariant)
                         }
                         if (addonFallback != null) {
@@ -1889,8 +1889,10 @@ internal fun PlayerRuntimeController.tryAutoSelectPreferredSubtitleFromAvailable
 
     val addonMatch = run {
         // Try each target in priority order so primary language is preferred over secondary.
+        // Fork: the subtitle timed for the closest release first (see rankAddonSubtitlesForRelease).
+        val ranked = rankAddonSubtitlesForRelease(state.addonSubtitles, currentFilename)
         for (target in targets) {
-            val match = state.addonSubtitles.firstOrNull { subtitle ->
+            val match = ranked.firstOrNull { subtitle ->
                 (!useForcedSubtitles || !addonSubtitleIsForced(subtitle)) &&
                     PlayerSubtitleUtils.matchesLanguageCode(subtitle.lang, target)
             }

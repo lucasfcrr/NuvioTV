@@ -52,7 +52,11 @@ internal suspend fun PlayerRuntimeController.fetchAddonSubtitlesNow(
 
     // Compute hash lazily for providers that support OpenSubtitles-style matching.
     if (currentVideoHash == null && currentStreamUrl.isNotBlank()) {
-        val result = OpenSubtitlesHasher.compute(currentStreamUrl, currentHeaders)
+        // Fork: capped, so a cold Usenet file never holds the subtitles back; without a hash they come as before.
+        val result = kotlinx.coroutines.withTimeoutOrNull(8_000L) {
+            OpenSubtitlesHasher.compute(currentStreamUrl, currentHeaders)
+        }
+        Log.i("SubtitleHash", "hash=${result?.hash ?: "none"} size=${result?.fileSize ?: currentVideoSize}")
         if (result != null) {
             currentVideoHash = result.hash
             if (currentVideoSize == null) currentVideoSize = result.fileSize
