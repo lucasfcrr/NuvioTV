@@ -602,11 +602,19 @@ internal suspend fun PlayerRuntimeController.loadSavedProgressSuspend(season: In
     } else {
         watchProgressRepository.getProgress(progressContentId!!, profileId).firstOrNull()
     }
+    // Fork: with Trakt as the source, `local` above is Trakt's, which only hears of pauses and stops; after the app
+    // was killed or the TV turned off mid-episode it is behind the position saved on this device. The newer wins.
+    val deviceSaved = if (isCloudLibraryPlayback) null
+        else watchProgressRepository.getLocalProgress(progressContentId!!, season, episode, profileId)
+    val newest = listOfNotNull(local, deviceSaved).filter { it.isInProgress() }.maxByOrNull { it.lastWatched } ?: local
+    if (newest != null && newest !== local) {
+        Log.d(PlayerRuntimeController.TAG, "loadSavedProgressSuspend: device save is newer, position=${newest.position} (source had ${local?.position})")
+    }
     // Fork: opened from a Continue Watching card on a cold start, the progress may not be loaded yet; the card's own
     // position (LaunchResumeHint) stands in for it, so the title doesn't restart from the beginning.
     val hint = if (isCloudLibraryPlayback) null
         else com.nuvio.tv.core.sync.androidtv.LaunchResumeHint.take(progressContentId, season, episode)
-    val fromCard = if (hint != null && (local == null || !local.isInProgress())) {
+    val fromCard = if (hint != null && (newest == null || !newest.isInProgress())) {
         currentWatchProgress(
             progressContentId!!,
             contentType ?: "movie",
@@ -616,7 +624,7 @@ internal suspend fun PlayerRuntimeController.loadSavedProgressSuspend(season: In
         ).also {
             Log.d(PlayerRuntimeController.TAG, "loadSavedProgressSuspend: no saved progress, using the card's position=${hint.positionMs}")
         }
-    } else local
+    } else newest
     val progress = newerServerProgress(fromCard)
 
     progress?.let { saved ->

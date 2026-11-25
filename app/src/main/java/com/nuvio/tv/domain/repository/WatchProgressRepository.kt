@@ -30,7 +30,14 @@ interface WatchProgressRepository {
 
     fun getProgress(contentId: String, profileId: Int): Flow<WatchProgress?> =
         getProgress(contentId)
-    
+
+    /**
+     * Fork: the position saved on this device only (the player's periodic saves), whatever the progress source.
+     * With Trakt as the source, reads above come from Trakt, which only hears of pauses and stops; after the app
+     * was killed or the TV turned off mid-episode, this local save is the newer one.
+     */
+    suspend fun getLocalProgress(contentId: String, season: Int?, episode: Int?, profileId: Int): WatchProgress? = null
+
     /**
      * Get watch progress for a specific episode
      */

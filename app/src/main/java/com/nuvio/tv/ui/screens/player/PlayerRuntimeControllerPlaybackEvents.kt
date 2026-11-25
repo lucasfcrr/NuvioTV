@@ -42,7 +42,8 @@ internal const val AUDIO_DELAY_HOLD_FAST_STEP_MS = 100
 internal const val AUDIO_DELAY_HOLD_THRESHOLD_MS = 1000L
 internal const val AUDIO_DELAY_HOLD_FAST_THRESHOLD_MS = 2000L
 internal const val AUDIO_DELAY_HOLD_REPEAT_INTERVAL_MS = 100L
-internal const val WATCH_PROGRESS_SAVE_INTERVAL_MS = 90_000L
+// Fork: 15 s (was 90): a TV turned off mid-film loses at most ~15 s; this periodic save is local only (no remote sync).
+internal const val WATCH_PROGRESS_SAVE_INTERVAL_MS = 15_000L
 
 /**
  * Audio delay split into its sources, so the stream hint and the user's tweak on that stream

@@ -523,6 +523,15 @@ class WatchProgressRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun getLocalProgress(contentId: String, season: Int?, episode: Int?, profileId: Int): WatchProgress? =
+        runCatching {
+            if (season != null && episode != null) {
+                watchProgressPreferences.getEpisodeProgress(contentId, season, episode, profileId).firstOrNull()
+            } else {
+                watchProgressPreferences.getProgress(contentId, profileId).firstOrNull()
+            }
+        }.getOrNull()
+
     override fun getProgress(contentId: String, profileId: Int): Flow<WatchProgress?> {
         return profileProgressProviderFlow(profileId)
             .flatMapLatest { provider ->
