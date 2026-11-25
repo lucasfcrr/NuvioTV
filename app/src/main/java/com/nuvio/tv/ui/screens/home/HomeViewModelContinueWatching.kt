@@ -293,6 +293,25 @@ private fun Flow<ContinueWatchingSettingsSnapshot>.holdWhilePlayerOpen(): Flow<C
         .distinctUntilChanged { old, new -> old === new }
 
 @OptIn(kotlinx.coroutines.FlowPreview::class)
+/**
+ * Fork: an episode left in progress is stale once a later episode of the same series was finished after it (a
+ * Trakt pause of S1E3 at 70% kept the series on E3, and hid the next-up E10, both in the app and on the TV's row).
+ * A rewatch still shows: there the in-progress episode is the newer one.
+ */
+internal fun dropSupersededInProgress(
+    inProgress: List<WatchProgress>,
+    completedSeeds: List<WatchProgress>
+): List<WatchProgress> = inProgress.filterNot { p ->
+    val season = p.season ?: return@filterNot false
+    val episode = p.episode ?: return@filterNot false
+    completedSeeds.any { c ->
+        val cs = c.season ?: return@any false
+        val ce = c.episode ?: return@any false
+        c.contentId == p.contentId && c.lastWatched > p.lastWatched &&
+            (cs > season || (cs == season && ce > episode))
+    }
+}
+
 internal fun HomeViewModel.loadContinueWatchingPipeline() {
     cwPipelineJob?.cancel()
     cwPipelineJob = viewModelScope.launch {
@@ -469,7 +488,10 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 }
                 val inProgressOnly = buildList {
                     val liveInProgress = deduplicateInProgress(
-                        recentItems.filter { shouldTreatAsInProgressForContinueWatching(it) }
+                        dropSupersededInProgress(
+                            recentItems.filter { shouldTreatAsInProgressForContinueWatching(it) },
+                            nextUpSeeds
+                        )
                     )
                     if (liveInProgress.isNotEmpty()) {
                         liveInProgress.forEach { progress ->
