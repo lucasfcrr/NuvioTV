@@ -1035,6 +1035,31 @@ internal fun PlayerRuntimeController.saveWatchProgressInternal(
                     )
                 }
                 runCatching { tvRecommendationManager.onProgressRemoved(normalizedProgress.contentId) }
+                // Fork: put the next episode on the Watch Next row right away (see publishNextUpNow).
+                runCatching {
+                    val next = nextEpisodeVideo
+                    if (next != null && normalizedProgress.season != null && next.season != null && next.episode != null &&
+                        PlayerNextEpisodeRules.hasEpisodeAired(next.released)
+                    ) {
+                        tvRecommendationManager.publishNextUpNow(
+                            WatchProgress(
+                                contentId = normalizedProgress.contentId,
+                                contentType = normalizedProgress.contentType,
+                                name = normalizedProgress.name,
+                                poster = normalizedProgress.poster,
+                                backdrop = normalizedProgress.backdrop,
+                                logo = normalizedProgress.logo,
+                                videoId = next.id,
+                                season = next.season,
+                                episode = next.episode,
+                                episodeTitle = next.title,
+                                position = 0L,
+                                duration = 0L,
+                                lastWatched = System.currentTimeMillis()
+                            )
+                        )
+                    }
+                }
             } else if (!hasMarkedCurrentEpisodeCompleted) {
                 // Only save in-progress when the episode has not already been
                 // marked as completed during this playback session.  After

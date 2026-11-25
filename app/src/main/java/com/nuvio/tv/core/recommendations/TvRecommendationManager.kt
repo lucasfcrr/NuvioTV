@@ -163,6 +163,19 @@ class TvRecommendationManager @Inject constructor(
 
     private var lastLiveWriteAt = 0L
 
+    /**
+     * Fork: the Next Up card for an episode that has just been finished, written now (during playback). The
+     * channel sync only recomputes Next Up when the home screen runs the Continue Watching pipeline, so a TV
+     * switched off in the credits kept showing the finished episode's old card.
+     */
+    suspend fun publishNextUpNow(nextUp: WatchProgress) {
+        if (!isTvDevice()) return
+        mutex.withLock {
+            pendingWatchNext = null
+            upsertSingleWatchNextLocked(nextUp, force = true)
+        }
+    }
+
     private suspend fun flushPendingWatchNext() {
         if (!isTvDevice()) return
         mutex.withLock {
