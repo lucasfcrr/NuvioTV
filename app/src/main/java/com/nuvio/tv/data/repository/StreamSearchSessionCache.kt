@@ -259,7 +259,8 @@ internal class StreamSearchSessionCache(
         matchesMediaRequest(other) && sourceConfiguration == other.sourceConfiguration
 
     private companion object {
-        const val DEFAULT_COMPLETED_TTL_MS = 15 * 60 * 1_000L
+        // Fork: 2 min (was 15): a change to the addons' config (order, filters) shows up without restarting the app.
+        const val DEFAULT_COMPLETED_TTL_MS = 2 * 60 * 1_000L
         const val DEFAULT_MAX_ENTRIES = 12
     }
 }
