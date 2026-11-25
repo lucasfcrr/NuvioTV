@@ -290,6 +290,25 @@ internal fun PlayerRuntimeController.updateAvailableTracks(tracks: Tracks) {
         selectedAudioIndex = restoredIndex
     }
 
+    // Fork: a track override names its track group, so when the player rebuilds its tracks the
+    // embedded subtitle chosen a moment earlier is silently dropped, while the menu still shows it
+    // chosen (the subtitle only came back after picking it again). Put it back.
+    val shownSubtitleIndex = _uiState.value.selectedSubtitleTrackIndex
+    if (selectedSubtitleIndex >= 0) {
+        internalSubtitleReselectAttempts = 0
+    } else if (
+        shownSubtitleIndex in subtitleTracks.indices &&
+        _uiState.value.selectedAddonSubtitle == null &&
+        pendingAddonSubtitleTrackId.isNullOrBlank() &&
+        !subtitleDisabledByPersistedPreference &&
+        internalSubtitleReselectAttempts < 3
+    ) {
+        internalSubtitleReselectAttempts++
+        Log.i(PlayerRuntimeController.TAG, "SUB_RESELECT: menu shows internal $shownSubtitleIndex, player has none; re-applying")
+        selectSubtitleTrack(shownSubtitleIndex)
+        selectedSubtitleIndex = shownSubtitleIndex
+    }
+
     _uiState.update { state ->
         val finalSubtitleIndex = when {
             state.selectedAddonSubtitle != null -> -1

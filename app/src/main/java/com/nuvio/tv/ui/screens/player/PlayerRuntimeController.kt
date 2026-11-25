@@ -530,6 +530,8 @@ class PlayerRuntimeController(
     internal var tunneledFirstFrameAssumed = false
     // Prevent the previous stream's end from completing the new stream.
     internal var endDetectionArmed = false
+    /** Fork: re-applies of an embedded subtitle the player dropped (see SUB_RESELECT). */
+    internal var internalSubtitleReselectAttempts = 0
     // Ignore EOF until MPV has reported a non-EOF state for this stream.
     internal var mpvEofSeenClear = false
     // Set once the Exo progress loop forced a natural end for a position past duration.
