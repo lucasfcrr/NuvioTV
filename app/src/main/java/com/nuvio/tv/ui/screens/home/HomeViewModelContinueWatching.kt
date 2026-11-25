@@ -294,7 +294,7 @@ private fun Flow<ContinueWatchingSettingsSnapshot>.holdWhilePlayerOpen(): Flow<C
 
 @OptIn(kotlinx.coroutines.FlowPreview::class)
 /**
- * Fork: an episode left in progress is stale once a later episode of the same series was finished after it (a
+ * Fork: an episode left in progress is stale once it, or a later episode of the same series, was finished after it (a
  * Trakt pause of S1E3 at 70% kept the series on E3, and hid the next-up E10, both in the app and on the TV's row).
  * A rewatch still shows: there the in-progress episode is the newer one.
  */
@@ -308,7 +308,7 @@ internal fun dropSupersededInProgress(
         val cs = c.season ?: return@any false
         val ce = c.episode ?: return@any false
         c.contentId == p.contentId && c.lastWatched > p.lastWatched &&
-            (cs > season || (cs == season && ce > episode))
+            (cs > season || (cs == season && ce >= episode))
     }
 }
 

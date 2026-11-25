@@ -7,7 +7,7 @@ import org.junit.Test
 
 class TrackingProgressProjectionTest {
     @Test
-    fun `projection keeps eligible local entries without replacing provider entries`() {
+    fun `projection keeps the newest entry, local or provider`() {
         val providerEntry = progress("tt100", 1, 1, 10L, 25L)
         val duplicateLocal = progress("tt100", 1, 1, 30L, 75L)
         val retainedLocal = progress("kitsu:44", 1, 2, 20L, 50L)
@@ -19,17 +19,19 @@ class TrackingProgressProjectionTest {
             retainsLocalProgress = { contentId -> contentId.startsWith("kitsu:") }
         )
 
-        assertEquals(listOf(retainedLocal, providerEntry), result)
+        // The newer local entry replaces the provider's; local titles the provider lacks count too.
+        assertEquals(listOf(excludedLocal, duplicateLocal, retainedLocal), result)
     }
 
     @Test
-    fun `projection stays provider exclusive when no local entries are retained`() {
-        val providerEntry = progress("simkl:100", null, null, 10L, 25L)
-        val localEntry = progress("kitsu:44", null, null, 20L, 50L)
+    fun `an older local entry never replaces the provider's newer one`() {
+        val providerEntry = progress("tt100", 1, 3, 30L, 25L)
+        val localEntry = progress("tt100", 1, 3, 20L, 50L)
+        val olderLocalEpisode = progress("tt100", 1, 2, 10L, 50L)
 
         val result = mergeProgressProjectionWithRetainedLocal(
             providerEntries = listOf(providerEntry),
-            localEntries = listOf(localEntry),
+            localEntries = listOf(localEntry, olderLocalEpisode),
             retainsLocalProgress = { false }
         )
 

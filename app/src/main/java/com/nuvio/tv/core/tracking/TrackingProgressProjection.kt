@@ -8,13 +8,23 @@ internal fun mergeProgressProjectionWithRetainedLocal(
     localEntries: List<WatchProgress>,
     retainsLocalProgress: (String) -> Boolean
 ): List<WatchProgress> {
+    // Fork: the newest wins. The TV's own progress is live; the provider (Trakt) catches up later and is
+    // the backup and the phone's way in. So for the same episode the entry watched last is kept, and a
+    // local entry the provider doesn't have yet counts when it is newer than all the provider knows of
+    // that title (the provider used to win always, so the TV showed Trakt's older state until it synced).
+    val localByKey = localEntries.associateBy(WatchProgress::projectionKey)
     val providerKeys = providerEntries.mapTo(mutableSetOf(), WatchProgress::projectionKey)
+    val providerLatestByContent = providerEntries.groupBy(WatchProgress::contentId)
+        .mapValues { (_, entries) -> entries.maxOf(WatchProgress::lastWatched) }
     return buildList {
-        addAll(providerEntries)
+        providerEntries.forEach { remote ->
+            val local = localByKey[remote.projectionKey()]
+            add(if (local != null && local.lastWatched > remote.lastWatched) local else remote)
+        }
         localEntries.forEach { progress ->
-            if (retainsLocalProgress(progress.contentId) && progress.projectionKey() !in providerKeys) {
-                add(progress)
-            }
+            if (progress.projectionKey() in providerKeys) return@forEach
+            val newerThanProvider = progress.lastWatched > (providerLatestByContent[progress.contentId] ?: Long.MIN_VALUE)
+            if (retainsLocalProgress(progress.contentId) || newerThanProvider) add(progress)
         }
     }.sortedByDescending(WatchProgress::lastWatched)
 }
