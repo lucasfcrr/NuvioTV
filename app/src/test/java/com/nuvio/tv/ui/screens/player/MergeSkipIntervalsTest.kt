@@ -10,13 +10,13 @@ class MergeSkipIntervalsTest {
         SkipInterval(startTime = start, endTime = end, type = type, provider = provider)
 
     @Test
-    fun `chapters take priority over API for same category`() {
+    fun `API takes priority over chapters for same category`() {
         val api = listOf(interval("intro", 85.0, 175.0, "introdb"))
         val chapters = listOf(interval("intro", 90.0, 180.0, "chapters"))
         val merged = mergeSkipIntervals(api, chapters)
         assertEquals(1, merged.size)
-        assertEquals("chapters", merged[0].provider)
-        assertEquals(90.0, merged[0].startTime, 0.01)
+        assertEquals("introdb", merged[0].provider)
+        assertEquals(85.0, merged[0].startTime, 0.01)
     }
 
     @Test
@@ -30,7 +30,7 @@ class MergeSkipIntervalsTest {
         assertEquals(2, merged.size)
         val opening = merged.find { it.type == "intro" }!!
         val recap = merged.find { it.type == "recap" }!!
-        assertEquals("chapters", opening.provider)
+        assertEquals("introdb", opening.provider)
         assertEquals("introdb", recap.provider)
     }
 
@@ -45,7 +45,7 @@ class MergeSkipIntervalsTest {
         assertEquals(2, merged.size)
         val opening = merged.find { it.type == "intro" }!!
         val ending = merged.find { it.type == "outro" }!!
-        assertEquals("chapters", opening.provider)
+        assertEquals("introdb", opening.provider)
         assertEquals("chapters", ending.provider)
     }
 
@@ -112,10 +112,10 @@ class MergeSkipIntervalsTest {
         )
         val merged = mergeSkipIntervals(api, chapters)
         assertEquals(4, merged.size)
-        // All categorized come from chapters (priority)
-        assertEquals("chapters", merged.find { it.type == "recap" }!!.provider)
-        assertEquals("chapters", merged.find { it.type == "intro" }!!.provider)
-        assertEquals("chapters", merged.find { it.type == "outro" }!!.provider)
+        // All categorized come from the API (priority)
+        assertEquals("introdb", merged.find { it.type == "recap" }!!.provider)
+        assertEquals("introdb", merged.find { it.type == "intro" }!!.provider)
+        assertEquals("introdb", merged.find { it.type == "outro" }!!.provider)
         // post-credits only from API
         assertEquals("introdb", merged.find { it.type == "post-credits" }!!.provider)
     }
