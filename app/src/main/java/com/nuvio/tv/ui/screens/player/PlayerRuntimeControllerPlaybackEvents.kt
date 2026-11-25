@@ -1037,7 +1037,12 @@ internal fun PlayerRuntimeController.saveWatchProgressInternal(
                 runCatching { tvRecommendationManager.onProgressRemoved(normalizedProgress.contentId) }
                 // Fork: put the next episode on the Watch Next row right away (see publishNextUpNow).
                 runCatching {
-                    val next = nextEpisodeVideo
+                    // The next one after THIS progress's episode: by the time this coroutine runs, an auto-play
+                    // switch may already have moved nextEpisodeVideo on (the card showed E9 after E7).
+                    val doneEpisode = normalizedProgress.episode
+                    val next = if (doneEpisode != null) {
+                        PlayerNextEpisodeRules.resolveNextEpisode(metaVideos, normalizedProgress.season, doneEpisode)
+                    } else null
                     if (next != null && normalizedProgress.season != null && next.season != null && next.episode != null &&
                         PlayerNextEpisodeRules.hasEpisodeAired(next.released)
                     ) {
