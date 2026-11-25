@@ -229,6 +229,7 @@ private fun String.safeMpvTraceHost(): String {
 }
 
 internal fun PlayerRuntimeController.pauseForLifecycle() {
+    writeWatchNextBeforeBackground()
     cancelStreamFallback(showError = true)
     if (streamFallbackSession != null && debridResolveJob?.isActive == true) {
         debridResolveJob?.cancel()
@@ -730,4 +731,37 @@ internal fun PlayerRuntimeController.scheduleSeekSuppressTimeout() {
         delay(NuvioExoPlayerPerformanceHelper.SEEK_SUPPRESS_TIMEOUT_MS)
         suppressBufferingUiForSeek = false
     }
+}
+
+/**
+ * Fork: the Android TV Continue Watching card (Watch Next) is written now, before the app goes to the background.
+ *
+ * The usual path saves the progress in a coroutine and only then writes the card; TCL's FreezeManager freezes the
+ * app seconds after Home, so the card could keep an old position while the app's own list moved on (the home
+ * screen showed one time, Nuvio another). Written here, on the way out, with a short cap so leaving never stalls.
+ */
+internal fun PlayerRuntimeController.writeWatchNextBeforeBackground() {
+    runCatching {
+        if (!hasRenderedFirstFrame || _playbackTimeline.value.isLive || isPlayingDiscExtra()) return
+        if (contentType.equals("cloud", ignoreCase = true)) return
+        val parentContentId = contentId?.takeIf { it.isNotEmpty() } ?: return
+        val parentContentType = contentType?.takeIf { it.isNotEmpty() } ?: return
+        val position = currentPlaybackPositionMs()?.takeIf { it >= 1000L } ?: return
+        val duration = getEffectiveDuration(position)
+        if (duration <= 0L || isShortPlaceholderDuration(duration)) return
+        val progress = currentWatchProgress(parentContentId, parentContentType, position, duration, System.currentTimeMillis())
+        if (progress.isCompleted()) return
+        com.nuvio.tv.core.recommendations.TvRecommendationManager.isPlaybackActive.value = false
+        kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+            kotlinx.coroutines.withTimeoutOrNull(1_500L) {
+                val id = watchProgressRepository.normalizeParentContentId(
+                    parentContentId = progress.contentId,
+                    videoId = progress.videoId,
+                    profileId = profileId
+                )
+                tvRecommendationManager.updateSingleWatchNextProgram(progress.copy(contentId = id))
+                Log.d(PlayerRuntimeController.TAG, "Watch Next written before background: $id at ${position / 1000}s")
+            }
+        }
+    }.onFailure { Log.w(PlayerRuntimeController.TAG, "Watch Next before background failed", it) }
 }
