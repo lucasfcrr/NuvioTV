@@ -61,6 +61,7 @@ class TvRecommendationManager @Inject constructor(
     companion object {
         const val TAG = "TvRecommendation"
         val isPlaybackActive = MutableStateFlow(false)
+        private const val LIVE_WRITE_INTERVAL_MS = 60_000L
     }
 
     suspend fun updateWatchNextFromCwItems(items: List<ContinueWatchingItem>) {
@@ -144,11 +145,23 @@ class TvRecommendationManager @Inject constructor(
         if (!isTvDevice()) return
         mutex.withLock {
             pendingWatchNext = progress
-            if (isPlaybackActive.value) return@withLock
+            if (isPlaybackActive.value) {
+                // Fork: a TV switched off at the power button kills the app without a stop, so a card held
+                // back for the whole playback would keep the position from before it started. One write a
+                // minute (off the main thread) keeps it near where the viewer really is.
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (now - lastLiveWriteAt < LIVE_WRITE_INTERVAL_MS) return@withLock
+                lastLiveWriteAt = now
+                pendingWatchNext = null
+                upsertSingleWatchNextLocked(progress, force = true)
+                return@withLock
+            }
             pendingWatchNext = null
             upsertSingleWatchNextLocked(progress)
         }
     }
+
+    private var lastLiveWriteAt = 0L
 
     private suspend fun flushPendingWatchNext() {
         if (!isTvDevice()) return
@@ -160,9 +173,9 @@ class TvRecommendationManager @Inject constructor(
         }
     }
 
-    private suspend fun upsertSingleWatchNextLocked(progress: WatchProgress) {
+    private suspend fun upsertSingleWatchNextLocked(progress: WatchProgress, force: Boolean = false) {
         withContext(Dispatchers.IO) {
-            if (isPlaybackActive.value) {
+            if (isPlaybackActive.value && !force) {
                 pendingWatchNext = progress
                 return@withContext
             }

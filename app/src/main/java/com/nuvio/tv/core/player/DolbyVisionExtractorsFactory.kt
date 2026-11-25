@@ -155,7 +155,7 @@ internal data class DolbyVisionConversionConfig(
      * libdovi RPU rewrite runs only when a mode is forced in Advanced, OR when the user
      * explicitly chose Convert to DV8.1 with DV5 enabled. DV7 always converts.
      */
-    val convertDv5Rpu: Boolean get() = forcedMode in 0..4 || (dv5Enabled && manualDv81)
+    val convertDv5Rpu: Boolean get() = forcedMode in 0..4
 
     /** True when a track of [profile] should be converted. */
     fun shouldConvert(profile: Int?): Boolean {
@@ -164,7 +164,9 @@ internal data class DolbyVisionConversionConfig(
             7 -> true
             // DV5 is already single-layer; only convert it when the user explicitly chose
             // Convert to DV8.1. AUTO leaves DV5 alone (converting it breaks colors).
-            5 -> dv5Enabled && manualDv81
+            // Fork: DV5 plays natively. Rewriting a profile-5 RPU to 8.1 turned a MAX WEB-DL green and pink on
+            // the TCL (its Realtek decoder has a native profile-5 path), also with "Convert to DV8.1" chosen.
+            5 -> false
             else -> false
         }
     }

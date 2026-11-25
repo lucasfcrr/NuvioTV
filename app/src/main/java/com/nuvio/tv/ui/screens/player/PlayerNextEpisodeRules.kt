@@ -47,7 +47,14 @@ object PlayerNextEpisodeRules {
         // A duration below the current position is not a valid end-of-video signal.
         if (durationMs > 0L && positionMs > durationMs + END_OF_VIDEO_EPSILON_MS) return false
 
-        val outroSegments = skipIntervals.filter { it.type in OUTRO_SEGMENT_TYPES }
+        // Only an outro that sits in the second half and starts inside the file is usable; anything
+        // else (e.g. an IntroDB entry timed for a longer cut) falls back to the configured threshold.
+        val outroSegments = skipIntervals.filter {
+            it.type in OUTRO_SEGMENT_TYPES && durationMs > 0L &&
+                it.startTime.isFinite() &&
+                it.startTime * 1_000.0 >= durationMs / 2.0 &&
+                it.startTime * 1_000.0 < durationMs
+        }
 
         if (outroSegments.isNotEmpty()) {
             if (durationMs <= 0L) return false
@@ -77,37 +84,9 @@ object PlayerNextEpisodeRules {
                 }
             }
 
-            val latestOutroEndMs = (outroSegments.maxOf { it.endTime } * 1_000.0).toLong()
-            val postOutroGapMs = durationMs - latestOutroEndMs
-
-            // Calculate the user's configured threshold as milliseconds from end.
-            val userThresholdMs = when (thresholdMode) {
-                NextEpisodeThresholdMode.PERCENTAGE -> {
-                    val clampedPercent = thresholdPercent.coerceIn(97f, 100f)
-                    ((1.0 - clampedPercent / 100.0) * durationMs).toLong()
-                }
-                NextEpisodeThresholdMode.MINUTES_BEFORE_END -> {
-                    val clampedMinutes = thresholdMinutesBeforeEnd.coerceIn(0f, 3.5f)
-                    (clampedMinutes * 60_000f).toLong()
-                }
-            }
-
-            return if (postOutroGapMs > userThresholdMs) {
-                when (thresholdMode) {
-                    NextEpisodeThresholdMode.PERCENTAGE -> {
-                        val clampedPercent = thresholdPercent.coerceIn(97f, 100f)
-                        (positionMs.toDouble() / durationMs.toDouble()) >= (clampedPercent / 100.0)
-                    }
-                    NextEpisodeThresholdMode.MINUTES_BEFORE_END -> {
-                        val clampedMinutes = thresholdMinutesBeforeEnd.coerceIn(0f, 3.5f)
-                        val remainingMs = durationMs - positionMs
-                        remainingMs <= (clampedMinutes * 60_000f).toLong()
-                    }
-                }
-            } else {
-                // Outro ends close to the file end — fire at earliest outro start.
-                positionMs / 1_000.0 >= outroSegments.minOf { it.startTime }
-            }
+            // Fork: an outro from IntroDB (or the chapters) decides the card on its own; the
+            // configured threshold below is only the fallback when there is no usable outro.
+            return positionMs / 1_000.0 >= outroSegments.minOf { it.startTime }
         }
 
         // Fallback to the settings threshold when no outro data exists.
