@@ -248,6 +248,9 @@ data class BufferSettings(
         const val FORK_TARGET_BUFFER_SIZE_MB = 180
         const val DEFAULT_BUFFER_FOR_PLAYBACK_MS = 5_000
         const val DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 3_000
+        // Fork: after a stall, resume with 10 s in hand instead of 3 s, so one stall doesn't
+        // turn into a run of stop-start ones.
+        const val FORK_AFTER_REBUFFER_MS = 10_000
         const val DEFAULT_TARGET_BUFFER_SIZE_MB: Int = 50
         const val DEFAULT_BACK_BUFFER_DURATION_MS = 0
     }
@@ -845,6 +848,7 @@ class PlayerSettingsDataStore @Inject constructor(
     private val migrationForkParallelOnDoneKey = booleanPreferencesKey("migration_fork_parallel_on_done")
     private val migrationForkLongBufferDoneKey = booleanPreferencesKey("migration_fork_long_buffer_done")
     private val migrationForkBufferCap180DoneKey = booleanPreferencesKey("migration_fork_buffer_cap_180_done")
+    private val migrationForkAfterRebuffer10sDoneKey = booleanPreferencesKey("migration_fork_after_rebuffer_10s_done")
     init {
         ioScope.launch {
             profileManager.activeProfileId.collect { pid ->
@@ -1027,6 +1031,13 @@ class PlayerSettingsDataStore @Inject constructor(
                         prefs[targetBufferSizeMbKey] = BufferSettings.FORK_TARGET_BUFFER_SIZE_MB
                     }
                     prefs[migrationForkBufferCap180DoneKey] = true
+                }
+                if (prefs[migrationForkAfterRebuffer10sDoneKey] != true) {
+                    val saved = prefs[bufferForPlaybackAfterRebufferMsKey]
+                    if (saved == null || saved < BufferSettings.FORK_AFTER_REBUFFER_MS) {
+                        prefs[bufferForPlaybackAfterRebufferMsKey] = BufferSettings.FORK_AFTER_REBUFFER_MS
+                    }
+                    prefs[migrationForkAfterRebuffer10sDoneKey] = true
                 }
 
                 val min = prefs[minBufferMsKey]
@@ -1325,7 +1336,7 @@ class PlayerSettingsDataStore @Inject constructor(
                     minBufferMs = prefs[minBufferMsKey] ?: BufferSettings.DEFAULT_MIN_BUFFER_MS,
                     maxBufferMs = prefs[maxBufferMsKey] ?: BufferSettings.DEFAULT_MAX_BUFFER_MS,
                     bufferForPlaybackMs = prefs[bufferForPlaybackMsKey] ?: BufferSettings.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
-                    bufferForPlaybackAfterRebufferMs = prefs[bufferForPlaybackAfterRebufferMsKey] ?: BufferSettings.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS,
+                    bufferForPlaybackAfterRebufferMs = prefs[bufferForPlaybackAfterRebufferMsKey] ?: BufferSettings.FORK_AFTER_REBUFFER_MS,
                     targetBufferSizeMb = prefs[targetBufferSizeMbKey]?.coerceAtLeast(0) ?: BufferSettings.DEFAULT_TARGET_BUFFER_SIZE_MB,
                     backBufferDurationMs = prefs[backBufferDurationMsKey] ?: BufferSettings.DEFAULT_BACK_BUFFER_DURATION_MS,
                     retainBackBufferFromKeyframe = prefs[retainBackBufferFromKeyframeKey] ?: false

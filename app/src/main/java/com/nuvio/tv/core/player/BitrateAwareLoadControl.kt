@@ -112,6 +112,9 @@ class BitrateAwareLoadControl(
         return currentTargetBufferBytes()
     }
 
+    /** Fork: the byte budget in force now (for the address-space governor's log). */
+    fun currentBudgetBytes(): Long = currentTargetBufferBytes().toLong()
+
     private fun currentTargetBufferBytes(): Int {
         val effectiveBudget = if (budgetBytesOverride >= 0L) budgetBytesOverride else budgetBytes
         return effectiveBudget.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()

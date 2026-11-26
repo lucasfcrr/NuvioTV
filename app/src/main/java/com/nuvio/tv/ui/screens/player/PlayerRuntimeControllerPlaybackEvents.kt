@@ -537,6 +537,16 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
 
                 if (player.isPlaying) {
                     val now = System.currentTimeMillis()
+                    // Fork: address-space governor, shadow mode (logs only).
+                    run {
+                        val alloc = (_loadControl?.allocator as? androidx.media3.exoplayer.upstream.DefaultAllocator)
+                            ?.totalBytesAllocated?.toLong() ?: 0L
+                        val budgetMb = currentBitrateAwareLoadControl?.currentBudgetBytes()?.div(1024L * 1024L) ?: 0L
+                        com.nuvio.tv.core.player.AddressSpaceGovernor.tick(
+                            now, budgetMb, alloc / (1024L * 1024L),
+                            (player.bufferedPosition - player.currentPosition) / 1000
+                        )
+                    }
                     if (now - lastBufferLogTimeMs >= 10_000) {
                         lastBufferLogTimeMs = now
                         val bufAhead = (player.bufferedPosition - player.currentPosition) / 1000
@@ -544,7 +554,10 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                         val runtime = Runtime.getRuntime()
                         val usedMb = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024)
                         val maxMb = runtime.maxMemory() / (1024 * 1024)
-                        Log.d(PlayerRuntimeController.TAG, "BUFFER: ahead=${bufAhead}s, loading=$loading, heap=$usedMb/${maxMb}MB, pos=${pos / 1000}s")
+                        val vm = com.nuvio.tv.core.player.AddressSpaceGovernor.read()
+                        val allocMb = ((_loadControl?.allocator as? androidx.media3.exoplayer.upstream.DefaultAllocator)
+                            ?.totalBytesAllocated?.toLong() ?: 0L) / (1024 * 1024)
+                        Log.d(PlayerRuntimeController.TAG, "BUFFER: ahead=${bufAhead}s, loading=$loading, heap=$usedMb/${maxMb}MB, pos=${pos / 1000}s, alloc=${allocMb}MB, vm=${vm?.vmSizeMb}MB, vmPeak=${vm?.vmPeakMb}MB")
                         
                         if (NuvioExoPlayerPerformanceHelper.shouldLogMemoryFootprint()) {
                             val defaultAllocator = _loadControl?.allocator as? androidx.media3.exoplayer.upstream.DefaultAllocator
