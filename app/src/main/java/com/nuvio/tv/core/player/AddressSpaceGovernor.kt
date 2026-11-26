@@ -47,8 +47,36 @@ object AddressSpaceGovernor {
 
     data class Sample(val vmSizeMb: Long, val vmPeakMb: Long)
 
+    // Persistent trace: survives TV power-off (logcat doesn't), read later with adb from
+    // /sdcard/Android/data/com.nuvio.tv/files/fork_vmgov.log. One line per 2 s sample while
+    // playing (~75 B/s, ~18 h per 5 MB), rotated to .1 at 5 MB.
+    private const val TRACE_FILE = "fork_vmgov.log"
+    private const val TRACE_MAX_BYTES = 5L * 1024L * 1024L
+    private val traceExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "vmgov-trace").apply { isDaemon = true; priority = Thread.MIN_PRIORITY }
+    }
+    @Volatile private var traceDir: File? = null
+    private val stamp = java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.US)
+
+    private fun trace(line: String) {
+        val dir = traceDir ?: return
+        val time = System.currentTimeMillis()
+        traceExecutor.execute {
+            runCatching {
+                val f = File(dir, TRACE_FILE)
+                if (f.length() > TRACE_MAX_BYTES) {
+                    val old = File(dir, "$TRACE_FILE.1")
+                    old.delete()
+                    f.renameTo(old)
+                }
+                f.appendText("${stamp.format(java.util.Date(time))} pid=${android.os.Process.myPid()} $line\n")
+            }
+        }
+    }
+
     /** Reads the test files once per playback. Missing files keep the shadow defaults. */
     fun configure(context: Context) {
+        traceDir = runCatching { context.getExternalFilesDir(null) }.getOrNull()
         live = false
         softLimitMb = DEFAULT_SOFT_LIMIT_MB
         hardLimitMb = DEFAULT_HARD_LIMIT_MB
@@ -62,7 +90,9 @@ object AddressSpaceGovernor {
             }
         }
         reset()
-        Log.i(TAG, "configured mode=${if (live) "LIVE" else "SHADOW"} soft=${softLimitMb}MB hard=${hardLimitMb}MB")
+        val header = "configured mode=${if (live) "LIVE" else "SHADOW"} soft=${softLimitMb}MB hard=${hardLimitMb}MB"
+        Log.i(TAG, header)
+        trace("START $header vm=${read()?.vmSizeMb}MB")
     }
 
     /** Test override of the buffer size (MB), or null. */
@@ -120,9 +150,17 @@ object AddressSpaceGovernor {
             if (target != appliedBudgetMb) {
                 lc.setBudgetBytesOverride(if (target < 0) -1L else target * 1024L * 1024L, player)
                 appliedBudgetMb = target
-                Log.i(TAG, "live applied budget=${if (target < 0) "full(${configuredMb}MB)" else "${target}MB"} vm=${sample.vmSizeMb}MB")
+                val applied = "live applied budget=${if (target < 0) "full(${configuredMb}MB)" else "${target}MB"} vm=${sample.vmSizeMb}MB"
+                Log.i(TAG, applied)
+                trace(applied)
             }
         }
+        val runtime = Runtime.getRuntime()
+        val heapMb = (runtime.totalMemory() - runtime.freeMemory()) / (1024L * 1024L)
+        trace(
+            "zone=$zone vm=${sample.vmSizeMb} peak=${sample.vmPeakMb} heap=$heapMb alloc=$allocatedMb " +
+                "budget=$configuredMb allow=$allow ahead=${bufferedAheadSec}s"
+        )
         val decision = "$zone:$allow"
         if (decision != lastDecision || zone != "OK") {
             Log.i(
