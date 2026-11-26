@@ -237,12 +237,15 @@ data class BufferSettings(
     val retainBackBufferFromKeyframe: Boolean = false
 ) {
     companion object {
-        // Fork: up to 5 min ahead, capped by FORK_TARGET_BUFFER_SIZE_MB of heap (~100 s of a
-        // 25 Mbit/s 4K, the full 5 min of 1080p). The min stays at 15 s because below it the time
-        // target overrides the byte cap (15 s of a 100 Mbit/s remux is ~190 MB).
+        // Fork: up to 5 min ahead, capped by FORK_TARGET_BUFFER_SIZE_MB of heap. The cap is the
+        // real limit on a 32-bit TV: 4K DV decoding + DV conversion + a ~300 MB buffer ran the
+        // process out of address space (mmap failed, SIGABRT at ~190 MB heap). 180 MB minus the
+        // parallel chunks (~48 MB) is what stock playback already used safely: ~40 s of 4K,
+        // the full 5 min of 1080p. The min stays at 15 s because below it the time target
+        // overrides the byte cap.
         const val DEFAULT_MIN_BUFFER_MS = 15_000
         const val DEFAULT_MAX_BUFFER_MS = 300_000
-        const val FORK_TARGET_BUFFER_SIZE_MB = 350
+        const val FORK_TARGET_BUFFER_SIZE_MB = 180
         const val DEFAULT_BUFFER_FOR_PLAYBACK_MS = 5_000
         const val DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 3_000
         const val DEFAULT_TARGET_BUFFER_SIZE_MB: Int = 50
@@ -841,6 +844,7 @@ class PlayerSettingsDataStore @Inject constructor(
     private val migrationVodCacheBackBufferZeroedDoneKey = booleanPreferencesKey("migration_vod_cache_back_buffer_zeroed_done")
     private val migrationForkParallelOnDoneKey = booleanPreferencesKey("migration_fork_parallel_on_done")
     private val migrationForkLongBufferDoneKey = booleanPreferencesKey("migration_fork_long_buffer_done")
+    private val migrationForkBufferCap180DoneKey = booleanPreferencesKey("migration_fork_buffer_cap_180_done")
     init {
         ioScope.launch {
             profileManager.activeProfileId.collect { pid ->
@@ -1015,6 +1019,14 @@ class PlayerSettingsDataStore @Inject constructor(
                     prefs[targetBufferSizeMbKey] = BufferSettings.FORK_TARGET_BUFFER_SIZE_MB
                     prefs[bufferBudgetManagedKey] = false
                     prefs[migrationForkLongBufferDoneKey] = true
+                }
+                // Fork: the first long-buffer cap (350 MB) crashed 32-bit TVs; bring saved values down.
+                if (prefs[migrationForkBufferCap180DoneKey] != true) {
+                    val saved = prefs[targetBufferSizeMbKey]
+                    if (saved == null || saved > BufferSettings.FORK_TARGET_BUFFER_SIZE_MB) {
+                        prefs[targetBufferSizeMbKey] = BufferSettings.FORK_TARGET_BUFFER_SIZE_MB
+                    }
+                    prefs[migrationForkBufferCap180DoneKey] = true
                 }
 
                 val min = prefs[minBufferMsKey]
