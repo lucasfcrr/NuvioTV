@@ -400,7 +400,7 @@ data class PlayerSettings(
 
     // Networking
     val bufferEngineEnabled: Boolean = false,
-    val parallelNetworkEnabled: Boolean = false,
+    val parallelNetworkEnabled: Boolean = DEFAULT_PARALLEL_NETWORK_ENABLED,
     /** When true the device memory budget caps the buffer; when false Target Buffer Size drives it. */
     val bufferBudgetManaged: Boolean = DEFAULT_BUFFER_BUDGET_MANAGED,
     /** When true, target buffer slider max is raised to 2GB regardless of device memory. */
@@ -490,9 +490,14 @@ data class PlayerSettings(
         const val MIN_VOD_CACHE_SIZE_MB = 100
         const val MAX_VOD_CACHE_SIZE_MB = 65_536
         val DEFAULT_VOD_CACHE_SIZE_MODE: VodCacheSizeMode = VodCacheSizeMode.AUTO
-        const val DEFAULT_USE_PARALLEL_CONNECTIONS = false
-        const val DEFAULT_PARALLEL_CONNECTION_COUNT = 2
-        const val DEFAULT_PARALLEL_CHUNK_SIZE_KB = 16 * 1024
+        // Fork: parallel on by default. One TCP connection over a ~200 ms path (Usenet server in
+        // Finland, TV in Brazil) tops out near a 4K stream's bitrate, so the buffer never builds;
+        // four connections give ~4x the headroom. 8 MB chunks keep the worst case on a 2 GB TV
+        // (connections + 10 chunks retained) near 110 MB of heap.
+        const val DEFAULT_PARALLEL_NETWORK_ENABLED = true
+        const val DEFAULT_USE_PARALLEL_CONNECTIONS = true
+        const val DEFAULT_PARALLEL_CONNECTION_COUNT = 4
+        const val DEFAULT_PARALLEL_CHUNK_SIZE_KB = 8 * 1024
         const val MIN_PARALLEL_CONNECTION_COUNT = 2
         const val MAX_PARALLEL_CONNECTION_COUNT = 4
         const val MIN_PARALLEL_CHUNK_SIZE_KB = 256
@@ -828,6 +833,7 @@ class PlayerSettingsDataStore @Inject constructor(
     private val migrationAllowLargeTargetBufferOffDoneKey = booleanPreferencesKey("migration_allow_large_target_buffer_off_done")
     private val migrationBufferBudgetManagedExoDoneKey = booleanPreferencesKey("migration_buffer_budget_managed_exo_done")
     private val migrationVodCacheBackBufferZeroedDoneKey = booleanPreferencesKey("migration_vod_cache_back_buffer_zeroed_done")
+    private val migrationForkParallelOnDoneKey = booleanPreferencesKey("migration_fork_parallel_on_done")
     init {
         ioScope.launch {
             profileManager.activeProfileId.collect { pid ->
@@ -982,6 +988,16 @@ class PlayerSettingsDataStore @Inject constructor(
                 if (!vodBackBufferZeroed) {
                     if (prefs[vodCacheEnabledKey] == true) prefs[backBufferDurationMsKey] = 0
                     prefs[migrationVodCacheBackBufferZeroedDoneKey] = true
+                }
+
+                // Fork: turn parallel connections on once for settings saved before it became the default.
+                if (prefs[migrationForkParallelOnDoneKey] != true) {
+                    prefs[parallelNetworkEnabledKey] = PlayerSettings.DEFAULT_PARALLEL_NETWORK_ENABLED
+                    prefs[useParallelConnectionsKey] = PlayerSettings.DEFAULT_USE_PARALLEL_CONNECTIONS
+                    prefs[parallelConnectionCountKey] = PlayerSettings.DEFAULT_PARALLEL_CONNECTION_COUNT
+                    prefs[parallelChunkSizeKbKey] = PlayerSettings.DEFAULT_PARALLEL_CHUNK_SIZE_KB
+                    prefs.remove(parallelChunkSizeMbKey)
+                    prefs[migrationForkParallelOnDoneKey] = true
                 }
 
                 val min = prefs[minBufferMsKey]
@@ -1214,7 +1230,7 @@ class PlayerSettingsDataStore @Inject constructor(
                 vodCacheSizeMb = (prefs[vodCacheSizeMbKey] ?: PlayerSettings.DEFAULT_VOD_CACHE_SIZE_MB).coerceIn(PlayerSettings.MIN_VOD_CACHE_SIZE_MB, PlayerSettings.MAX_VOD_CACHE_SIZE_MB),
                 useParallelConnections = prefs[useParallelConnectionsKey] ?: PlayerSettings.DEFAULT_USE_PARALLEL_CONNECTIONS,
                 bufferEngineEnabled = prefs[bufferEngineEnabledKey] ?: false,
-                parallelNetworkEnabled = prefs[parallelNetworkEnabledKey] ?: false,
+                parallelNetworkEnabled = prefs[parallelNetworkEnabledKey] ?: PlayerSettings.DEFAULT_PARALLEL_NETWORK_ENABLED,
                 allowLargeTargetBuffer = prefs[allowLargeTargetBufferKey] ?: PlayerSettings.DEFAULT_ALLOW_LARGE_TARGET_BUFFER,
                 bufferBudgetManaged = prefs[bufferBudgetManagedKey] ?: PlayerSettings.DEFAULT_BUFFER_BUDGET_MANAGED,
                 parallelConnectionCount = run {
@@ -2120,9 +2136,9 @@ class PlayerSettingsDataStore @Inject constructor(
                 val safeLimitMb = if (isNativeMemory) {
                     NuvioExoPlayerPerformanceHelper.getSafeNativeMemoryLimitMb(context)
                 } else {
-                    val parallelNetworkEnabled = prefs[parallelNetworkEnabledKey] ?: false
-                    val useParallelConnections = prefs[useParallelConnectionsKey] ?: false
-                    val connectionCount = prefs[parallelConnectionCountKey] ?: 2
+                    val parallelNetworkEnabled = prefs[parallelNetworkEnabledKey] ?: PlayerSettings.DEFAULT_PARALLEL_NETWORK_ENABLED
+                    val useParallelConnections = prefs[useParallelConnectionsKey] ?: PlayerSettings.DEFAULT_USE_PARALLEL_CONNECTIONS
+                    val connectionCount = prefs[parallelConnectionCountKey] ?: PlayerSettings.DEFAULT_PARALLEL_CONNECTION_COUNT
                     val chunkSizeKb = prefs[parallelChunkSizeKbKey] ?: ((prefs[parallelChunkSizeMbKey] ?: 16) * 1024)
                     val chunkSizeMb = Math.ceil(chunkSizeKb / 1024.0).toInt()
                     val parallelOverheadMb = if (parallelNetworkEnabled && useParallelConnections) {
