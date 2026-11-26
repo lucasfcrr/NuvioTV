@@ -2069,6 +2069,7 @@
     <string name="search_no_results_title">Nenhum resultado</string>
     <string name="search_no_results_subtitle">Tente buscar usando outras palavras</string>
     <string name="search_error_no_catalogs">Nenhum catálogo de busca encontrado nos addons instalados</string>
+    <string name="search_best_results">Melhores resultados</string>
 
     <string name="library_syncing">Sincronizando biblioteca Trakt\u2026</string>
     <string name="library_title">Biblioteca</string>

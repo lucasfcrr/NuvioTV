@@ -809,7 +809,8 @@ fun SearchScreen(
                             val catalogKey = catalogRow.stableKey()
                             val isPlaceholder = catalogRow.isLoading &&
                                 catalogRow.items.firstOrNull()?.id?.startsWith("__placeholder_") == true
-                            val hasEnoughForSeeAll = !isPlaceholder && catalogRow.items.size >= 15
+                            val isMergedRow = catalogRow.catalogId == SearchRelevance.MERGED_CATALOG_ID
+                            val hasEnoughForSeeAll = !isPlaceholder && !isMergedRow && catalogRow.items.size >= 15
 
                             val listState = searchRowStates.getOrPut(catalogKey) {
                                 val saved = viewModel.savedRowScrollPositions[catalogKey]
@@ -827,7 +828,7 @@ fun SearchScreen(
                                 showSeeAll = hasEnoughForSeeAll,
                                 showPosterLabels = uiState.posterLabelsEnabled,
                                 showAddonName = uiState.catalogAddonNameEnabled,
-                                showCatalogTypeSuffix = uiState.catalogTypeSuffixEnabled,
+                                showCatalogTypeSuffix = uiState.catalogTypeSuffixEnabled && !isMergedRow,
                                 enableRowFocusRestorer = true,
                                 rowFocusRequester = rowFocusRequester,
                                 entryFocusRequester = entryFocusRequester,

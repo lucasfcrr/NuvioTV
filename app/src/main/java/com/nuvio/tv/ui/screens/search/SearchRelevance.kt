@@ -48,6 +48,62 @@ internal object SearchRelevance {
         }?.rank
     }
 
+    /** Catalog id of the merged "best results" row. The screen keys off it (no See All, no type suffix). */
+    const val MERGED_CATALOG_ID = "__best_results__"
+
+    /**
+     * One list instead of one row per type: every loaded row of an addon is merged into a single
+     * [title] row, movies and series together, ordered by TMDB rank. What TMDB does not match
+     * follows, taking turns between the addon's rows so each keeps its own order. While only one of
+     * an addon's rows has loaded, it is just reordered and the others keep their shimmer; the
+     * merge happens as soon as a second one arrives.
+     */
+    fun unify(rows: List<CatalogRow>, hits: List<TmdbHit>, title: String): List<CatalogRow> {
+        if (hits.isEmpty()) return rows
+        fun isPlaceholder(row: CatalogRow) =
+            row.isLoading && row.items.firstOrNull()?.id?.startsWith("__placeholder_") == true
+        val result = mutableListOf<CatalogRow>()
+        val doneGroups = mutableSetOf<String>()
+        for (row in rows) {
+            val group = row.addonBaseUrl
+            if (!doneGroups.add(group)) continue
+            val inGroup = rows.filter { it.addonBaseUrl == group }
+            val loaded = inGroup.filter { !isPlaceholder(it) && it.items.isNotEmpty() }
+            if (loaded.size < 2) {
+                result += order(inGroup, hits)
+                continue
+            }
+            val ranked = mutableListOf<Pair<Int, MetaPreview>>()
+            val unmatchedByRow = loaded.map { mutableListOf<MetaPreview>() }
+            val seen = mutableSetOf<String>()
+            loaded.forEachIndexed { rowIndex, r ->
+                r.items.forEach { item ->
+                    if (!seen.add("${item.apiType}:${item.id}")) return@forEach
+                    val rank = rankOf(item, hits)
+                    if (rank != null) ranked += rank to item else unmatchedByRow[rowIndex] += item
+                }
+            }
+            val merged = ranked.sortedBy { it.first }.map { it.second }.toMutableList()
+            var position = 0
+            while (unmatchedByRow.any { position < it.size }) {
+                unmatchedByRow.forEach { it.getOrNull(position)?.let(merged::add) }
+                position++
+            }
+            val first = loaded.first()
+            result += first.copy(
+                catalogId = MERGED_CATALOG_ID,
+                catalogName = title,
+                items = merged,
+                isLoading = loaded.any { it.isLoading } || inGroup.any(::isPlaceholder),
+                hasMore = false,
+                supportsSkip = false,
+                nextSkip = 0,
+                extraArgs = emptyMap(),
+            )
+        }
+        return result
+    }
+
     /** Rows ordered by the best-ranked item they hold; items inside each row likewise. */
     fun order(rows: List<CatalogRow>, hits: List<TmdbHit>): List<CatalogRow> {
         if (hits.isEmpty()) return rows

@@ -928,7 +928,9 @@ class SearchViewModel @Inject constructor(
                     row.items.firstOrNull()?.id?.startsWith("__placeholder_") == true
                 isPlaceholder || row.items.isNotEmpty()
             }
-            val relevantRows = SearchRelevance.order(orderedRows, tmdbHits)
+            val relevantRows = SearchRelevance.unify(
+                orderedRows, tmdbHits, context.getString(R.string.search_best_results)
+            )
             val filteredRows = if (hideUnreleasedContent) {
                 val today = LocalDate.now()
                 relevantRows.map { row ->
