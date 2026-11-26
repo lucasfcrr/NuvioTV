@@ -143,6 +143,8 @@ class SearchViewModelConcurrencyTest {
             watchedSeriesStateHolder = watchedSeries,
             posterOptions = mockk<PosterOptionsController>(relaxed = true),
             serverCatalog = mockk { every { searchAddons } returns flowOf(emptyList()) },
+            tmdbApi = mockk(relaxed = true),
+            tmdbSettingsDataStore = mockk(relaxed = true),
             context = mockk<Context>(relaxed = true)
         )
     }

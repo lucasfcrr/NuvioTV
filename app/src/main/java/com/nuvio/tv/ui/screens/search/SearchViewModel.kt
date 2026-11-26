@@ -59,6 +59,8 @@ class SearchViewModel @Inject constructor(
     private val watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder,
     val posterOptions: com.nuvio.tv.ui.components.posteroptions.PosterOptionsController,
     private val serverCatalog: ServerCatalog,
+    private val tmdbApi: com.nuvio.tv.data.remote.api.TmdbApi,
+    private val tmdbSettingsDataStore: com.nuvio.tv.data.local.TmdbSettingsDataStore,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -77,6 +79,10 @@ class SearchViewModel @Inject constructor(
 
     private val catalogsMap = linkedMapOf<String, CatalogRow>()
     private val catalogOrder = mutableListOf<String>()
+
+    // Fork: TMDB's relevance order for the current query (movies + series together); empty until it
+    // arrives or when TMDB fails, in which case rows keep the addon order.
+    @Volatile private var tmdbHits: List<TmdbHit> = emptyList()
 
     private var activeSearchJobs: List<Job> = emptyList()
 
@@ -105,6 +111,7 @@ class SearchViewModel @Inject constructor(
         const val DISCOVER_INITIAL_LIMIT = 100
         const val DISCOVER_SHOW_MORE_BATCH = 50
         const val SUGGESTION_DEBOUNCE_MS = 150L
+        const val TMDB_RELEVANCE_TIMEOUT_MS = 3_000L
 
         /**
          * Live search fires while typing, but each run fans out to every enabled addon catalog, so
@@ -507,6 +514,7 @@ class SearchViewModel @Inject constructor(
     private fun resetCatalogAccumulator() {
         catalogsMap.clear()
         catalogOrder.clear()
+        tmdbHits = emptyList()
         hasRenderedFirstCatalog = false
         pendingCatalogResponses = 0
     }
@@ -717,8 +725,10 @@ class SearchViewModel @Inject constructor(
                     loadCatalog(addon, catalog, query, generation)
                 }
             }
-            pendingCatalogResponses = jobs.size
-            activeSearchJobs = jobs
+            // Fork: TMDB's order is not waited for; rows reorder when it arrives.
+            val tmdbJob = launch { loadTmdbRelevance(query, generation) }
+            pendingCatalogResponses = searchTargets.size
+            activeSearchJobs = jobs + tmdbJob
 
             // Wait for all jobs to complete so we can stop showing the global loading state.
             try {
@@ -794,6 +804,21 @@ class SearchViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    /** Fork: asks TMDB for its relevance order and reorders the rows once it answers. */
+    private suspend fun loadTmdbRelevance(query: String, generation: Long) {
+        val hits = runCatching {
+            kotlinx.coroutines.withTimeoutOrNull(TMDB_RELEVANCE_TIMEOUT_MS) {
+                val language = tmdbSettingsDataStore.settings.first().language
+                SearchRelevance.hitsFrom(
+                    tmdbApi.searchMulti(com.nuvio.tv.BuildConfig.TMDB_API_KEY, query, language).body()?.results.orEmpty()
+                )
+            }
+        }.getOrNull().orEmpty()
+        if (hits.isEmpty() || !isCurrentSearch(generation, query)) return
+        tmdbHits = hits
+        scheduleCatalogRowsUpdate()
     }
 
     private fun isCurrentSearch(generation: Long, query: String): Boolean =
@@ -903,9 +928,10 @@ class SearchViewModel @Inject constructor(
                     row.items.firstOrNull()?.id?.startsWith("__placeholder_") == true
                 isPlaceholder || row.items.isNotEmpty()
             }
+            val relevantRows = SearchRelevance.order(orderedRows, tmdbHits)
             val filteredRows = if (hideUnreleasedContent) {
                 val today = LocalDate.now()
-                orderedRows.map { row ->
+                relevantRows.map { row ->
                     if (row.isLoading && row.items.firstOrNull()?.id?.startsWith("__placeholder_") == true) {
                         row
                     } else {
@@ -913,7 +939,7 @@ class SearchViewModel @Inject constructor(
                     }
                 }
             } else {
-                orderedRows
+                relevantRows
             }
             state.copy(
                 catalogRows = filteredRows

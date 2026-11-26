@@ -222,6 +222,16 @@ interface TmdbApi {
         @Query("page") page: Int = 1
     ): Response<TmdbListDetailsResponse>
 
+    /** Fork: movies, series and people in one list, ordered by TMDB's own relevance (text match + popularity). */
+    @GET("search/multi")
+    suspend fun searchMulti(
+        @Query("api_key") apiKey: String,
+        @Query("query") query: String,
+        @Query("language") language: String? = null,
+        @Query("page") page: Int = 1,
+        @Query("include_adult") includeAdult: Boolean = false
+    ): Response<TmdbMultiSearchResponse>
+
     @GET("search/company")
     suspend fun searchCompanies(
         @Query("api_key") apiKey: String,
@@ -602,6 +612,25 @@ data class TmdbCompanySearchResult(
     @Json(name = "name") val name: String? = null,
     @Json(name = "logo_path") val logoPath: String? = null,
     @Json(name = "origin_country") val originCountry: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class TmdbMultiSearchResponse(
+    @Json(name = "results") val results: List<TmdbMultiSearchResult>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class TmdbMultiSearchResult(
+    @Json(name = "id") val id: Int,
+    @Json(name = "media_type") val mediaType: String? = null,
+    @Json(name = "title") val title: String? = null,
+    @Json(name = "name") val name: String? = null,
+    @Json(name = "original_title") val originalTitle: String? = null,
+    @Json(name = "original_name") val originalName: String? = null,
+    @Json(name = "release_date") val releaseDate: String? = null,
+    @Json(name = "first_air_date") val firstAirDate: String? = null,
+    @Json(name = "popularity") val popularity: Double? = null,
+    @Json(name = "vote_count") val voteCount: Int? = null
 )
 
 @JsonClass(generateAdapter = true)

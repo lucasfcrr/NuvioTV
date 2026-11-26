@@ -2172,7 +2172,7 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                     preferredServerNames
                 )
                 val allStreams = orderedStreams.flatMap { it.streams }
-                return StreamAutoPlaySelector.selectAutoPlayStream(
+                val picked = StreamAutoPlaySelector.selectAutoPlayStream(
                     streams = allStreams,
                     mode = effectiveMode,
                     regexPattern = effectiveRegex,
@@ -2188,6 +2188,12 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                     preferBingeGroupInSelection = playerSettings.streamAutoPlayPreferBingeGroupForNextEpisode,
                     bingeGroupOnly = bingeGroupOnlyManualMode
                 )
+                if (picked != null) return picked
+                // Fork: nothing matched the playing stream's group or file. Stay on the same source
+                // (e.g. the dubbed manifest) rather than opening the picker mid-marathon.
+                if (!playerSettings.streamAutoPlayPreferBingeGroupForNextEpisode) return null
+                return StreamAutoPlaySelector.selectSameSourceStream(allStreams, _uiState.value.currentStreamAddonName)
+                    ?.also { Log.i("NextEpisodeSource", "no binge/filename match; staying on source '${it.addonName}'") }
             }
 
             fun tryBingeGroupOnly(data: List<AddonStreams>): Stream? {

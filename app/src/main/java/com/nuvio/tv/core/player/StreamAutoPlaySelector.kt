@@ -95,6 +95,18 @@ object StreamAutoPlaySelector {
         return selectBingeGroupMatch(visible, targetBingeGroup)
     }
 
+    /**
+     * Fork: the last resort when no binge group or filename matched the next episode: the first
+     * playable stream from the same source addon as the one playing. A marathon started from the
+     * dubbed AIOStreams manifest stays on that manifest (whose list is already the dubbed one)
+     * instead of dropping to the picker, and a marathon on the default manifest keeps its own top
+     * result. The addon's own ordering decides which one is first.
+     */
+    fun selectSameSourceStream(streams: List<Stream>, addonName: String?): Stream? {
+        if (addonName.isNullOrBlank()) return null
+        return streams.firstOrNull { !it.isExternal() && it.addonName == addonName && isPlayable(it) }
+    }
+
     fun selectAutoPlayStream(
         streams: List<Stream>,
         mode: StreamAutoPlayMode,

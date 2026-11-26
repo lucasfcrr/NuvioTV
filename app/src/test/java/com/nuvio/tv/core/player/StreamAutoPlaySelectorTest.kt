@@ -31,6 +31,21 @@ class StreamAutoPlaySelectorTest {
     }
 
     @Test
+    fun `same-source fallback stays on the playing source's first playable stream`() {
+        val englishFirst = stream(addonName = "AIOStreams", url = "https://example.com/en.m3u8", name = "4K", bingeGroup = "g1")
+        val dubbedOne = stream(addonName = "AIOStreams Dublado", url = "https://example.com/pt1.m3u8", name = "720p", bingeGroup = "g2")
+        val dubbedTwo = stream(addonName = "AIOStreams Dublado", url = "https://example.com/pt2.m3u8", name = "1080p", bingeGroup = "g3")
+
+        val selected = StreamAutoPlaySelector.selectSameSourceStream(
+            listOf(englishFirst, dubbedOne, dubbedTwo), "AIOStreams Dublado"
+        )
+
+        assertEquals(dubbedOne, selected)
+        assertNull(StreamAutoPlaySelector.selectSameSourceStream(listOf(englishFirst), "AIOStreams Dublado"))
+        assertNull(StreamAutoPlaySelector.selectSameSourceStream(listOf(englishFirst), null))
+    }
+
+    @Test
     fun `bingeGroup-first selects matching stream before first stream mode`() {
         val first = stream(
             addonName = "AddonA",
