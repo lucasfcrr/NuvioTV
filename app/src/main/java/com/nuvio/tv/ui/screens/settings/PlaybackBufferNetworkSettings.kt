@@ -113,8 +113,8 @@ private fun CustomBufferControls(
     val context = LocalContext.current
     val buffer = settings.bufferSettings
     val isNativeMemory = settings.nuvioPerformanceModeEnabled
-    val maxDuration = if (isNativeMemory) 1200 else 120
-    val durationStep = if (isNativeMemory) 10 else 5
+    val maxDuration = if (isNativeMemory) 1200 else 600
+    val durationStep = 10
 
     SettingsSectionLabel(text = stringResource(R.string.playback_buffer_header))
     SettingsNote(text = stringResource(R.string.playback_buffer_warning), tone = SettingsNoteTone.Warning)

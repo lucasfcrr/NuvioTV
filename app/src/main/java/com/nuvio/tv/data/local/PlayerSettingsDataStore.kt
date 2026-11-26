@@ -237,8 +237,12 @@ data class BufferSettings(
     val retainBackBufferFromKeyframe: Boolean = false
 ) {
     companion object {
+        // Fork: up to 5 min ahead, capped by FORK_TARGET_BUFFER_SIZE_MB of heap (~100 s of a
+        // 25 Mbit/s 4K, the full 5 min of 1080p). The min stays at 15 s because below it the time
+        // target overrides the byte cap (15 s of a 100 Mbit/s remux is ~190 MB).
         const val DEFAULT_MIN_BUFFER_MS = 15_000
-        const val DEFAULT_MAX_BUFFER_MS = 45_000
+        const val DEFAULT_MAX_BUFFER_MS = 300_000
+        const val FORK_TARGET_BUFFER_SIZE_MB = 350
         const val DEFAULT_BUFFER_FOR_PLAYBACK_MS = 5_000
         const val DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 3_000
         const val DEFAULT_TARGET_BUFFER_SIZE_MB: Int = 50
@@ -399,7 +403,7 @@ data class PlayerSettings(
     val subtitleOrganizationMode: SubtitleOrganizationMode = SubtitleOrganizationMode.NONE,
 
     // Networking
-    val bufferEngineEnabled: Boolean = false,
+    val bufferEngineEnabled: Boolean = DEFAULT_BUFFER_ENGINE_ENABLED,
     val parallelNetworkEnabled: Boolean = DEFAULT_PARALLEL_NETWORK_ENABLED,
     /** When true the device memory budget caps the buffer; when false Target Buffer Size drives it. */
     val bufferBudgetManaged: Boolean = DEFAULT_BUFFER_BUDGET_MANAGED,
@@ -495,6 +499,8 @@ data class PlayerSettings(
         // four connections give ~4x the headroom. 8 MB chunks keep the worst case on a 2 GB TV
         // (connections + 10 chunks retained) near 110 MB of heap.
         const val DEFAULT_PARALLEL_NETWORK_ENABLED = true
+        // Fork: custom buffer on so it can hold minutes, not the stock 50 s (see BufferSettings).
+        const val DEFAULT_BUFFER_ENGINE_ENABLED = true
         const val DEFAULT_USE_PARALLEL_CONNECTIONS = true
         const val DEFAULT_PARALLEL_CONNECTION_COUNT = 4
         const val DEFAULT_PARALLEL_CHUNK_SIZE_KB = 8 * 1024
@@ -834,6 +840,7 @@ class PlayerSettingsDataStore @Inject constructor(
     private val migrationBufferBudgetManagedExoDoneKey = booleanPreferencesKey("migration_buffer_budget_managed_exo_done")
     private val migrationVodCacheBackBufferZeroedDoneKey = booleanPreferencesKey("migration_vod_cache_back_buffer_zeroed_done")
     private val migrationForkParallelOnDoneKey = booleanPreferencesKey("migration_fork_parallel_on_done")
+    private val migrationForkLongBufferDoneKey = booleanPreferencesKey("migration_fork_long_buffer_done")
     init {
         ioScope.launch {
             profileManager.activeProfileId.collect { pid ->
@@ -998,6 +1005,16 @@ class PlayerSettingsDataStore @Inject constructor(
                     prefs[parallelChunkSizeKbKey] = PlayerSettings.DEFAULT_PARALLEL_CHUNK_SIZE_KB
                     prefs.remove(parallelChunkSizeMbKey)
                     prefs[migrationForkParallelOnDoneKey] = true
+                }
+
+                // Fork: a buffer of minutes (custom engine, fixed heap cap) once for saved settings.
+                if (prefs[migrationForkLongBufferDoneKey] != true) {
+                    prefs[bufferEngineEnabledKey] = PlayerSettings.DEFAULT_BUFFER_ENGINE_ENABLED
+                    prefs[minBufferMsKey] = BufferSettings.DEFAULT_MIN_BUFFER_MS
+                    prefs[maxBufferMsKey] = BufferSettings.DEFAULT_MAX_BUFFER_MS
+                    prefs[targetBufferSizeMbKey] = BufferSettings.FORK_TARGET_BUFFER_SIZE_MB
+                    prefs[bufferBudgetManagedKey] = false
+                    prefs[migrationForkLongBufferDoneKey] = true
                 }
 
                 val min = prefs[minBufferMsKey]
@@ -1229,7 +1246,7 @@ class PlayerSettingsDataStore @Inject constructor(
                 } ?: PlayerSettings.DEFAULT_VOD_CACHE_SIZE_MODE,
                 vodCacheSizeMb = (prefs[vodCacheSizeMbKey] ?: PlayerSettings.DEFAULT_VOD_CACHE_SIZE_MB).coerceIn(PlayerSettings.MIN_VOD_CACHE_SIZE_MB, PlayerSettings.MAX_VOD_CACHE_SIZE_MB),
                 useParallelConnections = prefs[useParallelConnectionsKey] ?: PlayerSettings.DEFAULT_USE_PARALLEL_CONNECTIONS,
-                bufferEngineEnabled = prefs[bufferEngineEnabledKey] ?: false,
+                bufferEngineEnabled = prefs[bufferEngineEnabledKey] ?: PlayerSettings.DEFAULT_BUFFER_ENGINE_ENABLED,
                 parallelNetworkEnabled = prefs[parallelNetworkEnabledKey] ?: PlayerSettings.DEFAULT_PARALLEL_NETWORK_ENABLED,
                 allowLargeTargetBuffer = prefs[allowLargeTargetBufferKey] ?: PlayerSettings.DEFAULT_ALLOW_LARGE_TARGET_BUFFER,
                 bufferBudgetManaged = prefs[bufferBudgetManagedKey] ?: PlayerSettings.DEFAULT_BUFFER_BUDGET_MANAGED,

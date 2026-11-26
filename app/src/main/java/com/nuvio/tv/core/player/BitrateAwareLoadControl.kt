@@ -5,6 +5,7 @@ import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.LoadControl
 import androidx.media3.exoplayer.analytics.PlayerId
 import androidx.media3.exoplayer.trackselection.ExoTrackSelection
 import androidx.media3.exoplayer.upstream.Allocator
@@ -30,9 +31,9 @@ class BitrateAwareLoadControl(
     retainBackBufferFromKeyframe: Boolean,
     /** Memory ceiling in bytes. */
     private val budgetBytes: Long,
-    allocator: DefaultAllocator = DefaultAllocator(/* trimOnReset= */ true, C.DEFAULT_BUFFER_SEGMENT_SIZE, 64)
+    private val forkAllocator: DefaultAllocator = DefaultAllocator(/* trimOnReset= */ true, C.DEFAULT_BUFFER_SEGMENT_SIZE, 64)
 ) : DefaultLoadControl(
-    allocator,
+    forkAllocator,
     minBufferMs,
     maxBufferMs,
     bufferForPlaybackMs,
@@ -42,6 +43,19 @@ class BitrateAwareLoadControl(
     backBufferDurationMs,
     retainBackBufferFromKeyframe
 ) {
+
+    private val maxBufferUs: Long = maxBufferMs.toLong() * 1000L
+
+    /**
+     * Fork: keep topping the buffer up. DefaultLoadControl stops at the max (time or bytes) and
+     * only resumes below minBufferMs, so a 5 min buffer would drain to 30 s before loading again.
+     * On a high-latency path that gap is where stalls start; resume as soon as there's room.
+     */
+    override fun shouldContinueLoading(parameters: LoadControl.Parameters): Boolean {
+        if (super.shouldContinueLoading(parameters)) return true
+        return parameters.bufferedDurationUs < maxBufferUs &&
+            forkAllocator.totalBytesAllocated < currentTargetBufferBytes()
+    }
 
     // Effective back buffer (µs) when >= 0, else the constructed value.
     @Volatile
