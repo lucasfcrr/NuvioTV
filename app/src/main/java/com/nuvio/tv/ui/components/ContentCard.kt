@@ -97,6 +97,8 @@ fun ContentCard(
     focusRequester: FocusRequester? = null,
     posterCardStyle: PosterCardStyle = PosterCardDefaults.Style,
     showLabels: Boolean = true,
+    /** Fork: "Série · 2019" / "Filme · 2025" under the title, for lists that mix both (search). */
+    showTypeLabel: Boolean = false,
     showImdbRatings: Boolean = true,
     placeholderShimmerOffsetState: State<Float>? = null,
     focusedPosterBackdropExpandEnabled: Boolean = false,
@@ -725,10 +727,19 @@ fun ContentCard(
                         style = MaterialTheme.typography.titleMedium,
                         color = NuvioTheme.colors.TextPrimary,
                     )
-                    item.releaseInfo?.let { info ->
+                    val typeContext = LocalContext.current
+                    val infoLine = remember(showTypeLabel, item.rawType, item.releaseInfo) {
+                        listOfNotNull(
+                            if (showTypeLabel) {
+                                com.nuvio.tv.ui.util.localizedContentType(typeContext, item.rawType).takeIf { it.isNotBlank() }
+                            } else null,
+                            item.releaseInfo?.takeIf { it.isNotBlank() }
+                        ).joinToString(" · ")
+                    }
+                    if (infoLine.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(2.dp))
                         FocusMarqueeText(
-                            text = info,
+                            text = infoLine,
                             focused = isFocused,
                             style = MaterialTheme.typography.labelMedium,
                             color = NuvioTheme.extendedColors.textSecondary,

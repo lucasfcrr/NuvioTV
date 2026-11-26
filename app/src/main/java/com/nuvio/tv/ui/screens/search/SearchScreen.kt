@@ -827,6 +827,7 @@ fun SearchScreen(
                                 posterCardStyle = posterCardStyle,
                                 showSeeAll = hasEnoughForSeeAll,
                                 showPosterLabels = uiState.posterLabelsEnabled,
+                                showTypeLabel = isMergedRow,
                                 showAddonName = uiState.catalogAddonNameEnabled,
                                 showCatalogTypeSuffix = uiState.catalogTypeSuffixEnabled && !isMergedRow,
                                 enableRowFocusRestorer = true,
