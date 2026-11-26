@@ -541,9 +541,8 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                     run {
                         val alloc = (_loadControl?.allocator as? androidx.media3.exoplayer.upstream.DefaultAllocator)
                             ?.totalBytesAllocated?.toLong() ?: 0L
-                        val budgetMb = currentBitrateAwareLoadControl?.currentBudgetBytes()?.div(1024L * 1024L) ?: 0L
                         com.nuvio.tv.core.player.AddressSpaceGovernor.tick(
-                            now, budgetMb, alloc / (1024L * 1024L),
+                            now, currentBitrateAwareLoadControl, player, alloc / (1024L * 1024L),
                             (player.bufferedPosition - player.currentPosition) / 1000
                         )
                     }

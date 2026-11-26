@@ -563,7 +563,11 @@ internal fun PlayerRuntimeController.initializePlayer(
                 // Managed (default) caps the buffer at the device budget; off uses Target Buffer Size.
                 // Stay full here even on a DV display; first frame tightens only for confirmed DV7.
                 val budgetManaged = playerSettings.bufferBudgetManaged
-                val budgetMbEffective = if (budgetManaged) {
+                com.nuvio.tv.core.player.AddressSpaceGovernor.configure(context)
+                val testBufferMb = com.nuvio.tv.core.player.AddressSpaceGovernor.testBufferMb(context)
+                val budgetMbEffective = if (testBufferMb != null) {
+                    (testBufferMb - parallelOverheadMb).coerceAtLeast(MemoryBudget.MIN_BUFFER_MB)
+                } else if (budgetManaged) {
                     (MemoryBudget.budgetMb - parallelOverheadMb).coerceAtLeast(MemoryBudget.MIN_BUFFER_MB)
                 } else {
                     (MemoryBudget.effectiveBufferMb(bufferSettings.targetBufferSizeMb) - parallelOverheadMb)

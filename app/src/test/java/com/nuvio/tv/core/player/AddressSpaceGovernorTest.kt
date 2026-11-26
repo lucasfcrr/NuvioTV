@@ -23,6 +23,12 @@ class AddressSpaceGovernorTest {
     }
 
     @Test
+    fun `once reduced it holds until well under the soft limit`() {
+        assertEquals(88L, AddressSpaceGovernor.wouldAllowBudgetMb(s(2_600), 302, 80, currentlyReducedToMb = 88))
+        assertEquals(302L, AddressSpaceGovernor.wouldAllowBudgetMb(s(2_540), 302, 80, currentlyReducedToMb = 88))
+    }
+
+    @Test
     fun `past the hard limit it drops to the floor`() {
         assertEquals(48L, AddressSpaceGovernor.wouldAllowBudgetMb(s(2_850), 302, 250))
     }
