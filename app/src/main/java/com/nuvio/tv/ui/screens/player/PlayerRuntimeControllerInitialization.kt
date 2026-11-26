@@ -607,7 +607,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                     backBufferDurationMs = backBufferMsAtBuild,
                     retainBackBufferFromKeyframe = true,
                     budgetBytes = budgetBytes,
-                    allocator = allocator
+                    forkAllocator = allocator
                 ).also { currentBitrateAwareLoadControl = it }
             } else {
                 // Stock LoadControl: DefaultLoadControl configured with 1.5s back buffer so 1s rewind doesn't clear buffer.
