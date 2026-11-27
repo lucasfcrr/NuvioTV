@@ -23,9 +23,22 @@ class AddressSpaceGovernorTest {
     }
 
     @Test
-    fun `once reduced it holds until well under the soft limit`() {
-        assertEquals(88L, AddressSpaceGovernor.wouldAllowBudgetMb(s(2_600), 302, 80, currentlyReducedToMb = 88))
-        assertEquals(302L, AddressSpaceGovernor.wouldAllowBudgetMb(s(2_540), 302, 80, currentlyReducedToMb = 88))
+    fun `once reduced it holds until a margin under the soft limit`() {
+        assertEquals(88L, AddressSpaceGovernor.wouldAllowBudgetMb(s(2_650), 302, 80, currentlyReducedToMb = 88))
+        assertEquals(302L, AddressSpaceGovernor.wouldAllowBudgetMb(s(2_600), 302, 80, currentlyReducedToMb = 88))
+    }
+
+    @Test
+    fun `a brief spike over the soft limit is ignored, a sustained one is not`() {
+        val soft = 2_700L
+        val hard = 2_800L
+        // First seconds of a 4K DV start touch 2.7 GB: clamped under the soft limit.
+        assertEquals(2_699L, AddressSpaceGovernor.debounced(s(2_720), 1, soft, hard).vmSizeMb)
+        assertEquals(2_699L, AddressSpaceGovernor.debounced(s(2_720), 2, soft, hard).vmSizeMb)
+        assertEquals(2_720L, AddressSpaceGovernor.debounced(s(2_720), AddressSpaceGovernor.SUSTAIN_SAMPLES, soft, hard).vmSizeMb)
+        // Below the soft limit and past the hard limit pass through untouched.
+        assertEquals(2_640L, AddressSpaceGovernor.debounced(s(2_640), 0, soft, hard).vmSizeMb)
+        assertEquals(2_850L, AddressSpaceGovernor.debounced(s(2_850), 1, soft, hard).vmSizeMb)
     }
 
     @Test

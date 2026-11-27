@@ -11,14 +11,21 @@ import java.io.File
  * buffer may be. A 32-bit TV dies when mmap fails (4K DV + conversion + a large buffer crashed at
  * ~190 MB of heap) long before RAM runs out, so the buffer has to follow address space, not RAM.
  *
- * Default is SHADOW: it only logs what it would do ("VMGOV ..."). A test file in the app's
- * external files dir (`fork_gov.txt`: "live soft=2700 hard=2800") switches it to LIVE and/or
- * changes the limits, and `fork_buffer_mb.txt` overrides the buffer size, so the thresholds can be
- * proven against a forced crash without a rebuild. Without those files nothing changes.
+ * Default is LIVE (see [DEFAULT_LIVE]); it logs every decision ("VMGOV ..."). A test file in the
+ * app's external files dir (`fork_gov.txt`: "shadow", or "live soft=2700 hard=2800") switches the
+ * mode and/or changes the limits, and `fork_buffer_mb.txt` overrides the buffer size, so the
+ * thresholds can be proven against a forced crash without a rebuild.
  */
 @UnstableApi
 object AddressSpaceGovernor {
     private const val TAG = "VMGOV"
+
+    /**
+     * LIVE since 27/11/2026: it only acts past the soft limit (2.7 GB), which normal 4K DV
+     * (2.6 GB, buffer full) does not reach. A `fork_gov.txt` containing "shadow" turns it back
+     * into log-only, "live soft=.. hard=.." sets test limits.
+     */
+    const val DEFAULT_LIVE = true
 
     const val DEFAULT_SOFT_LIMIT_MB = 2_700L
     const val DEFAULT_HARD_LIMIT_MB = 2_800L
@@ -29,8 +36,15 @@ object AddressSpaceGovernor {
     /** How far below the current allocation a soft-zone shrink sets the budget. */
     private const val SHRINK_STEP_MB = 32L
 
-    /** Back under (soft - this) before the full budget is given back. */
-    private const val RESTORE_MARGIN_MB = 150L
+    /**
+     * Back under (soft - this) before the full budget is given back. Small on purpose: 4K Dolby
+     * Vision plays at 2.6 GB with the buffer full, so a wide margin would keep the buffer shrunk
+     * for a whole film after one brief peak (measured on the TV, 27/11).
+     */
+    private const val RESTORE_MARGIN_MB = 60L
+
+    /** Samples (2 s each) VmSize must stay at or above the soft limit before the buffer shrinks. */
+    const val SUSTAIN_SAMPLES = 3
 
     private const val SAMPLE_INTERVAL_MS = 2_000L
 
@@ -44,6 +58,7 @@ object AddressSpaceGovernor {
     private var lastSampleAt = 0L
     private var lastDecision: String? = null
     private var appliedBudgetMb = -1L   // -1 = no override in force
+    private var overSoftSamples = 0
 
     data class Sample(val vmSizeMb: Long, val vmPeakMb: Long)
 
@@ -77,14 +92,15 @@ object AddressSpaceGovernor {
     /** Reads the test files once per playback. Missing files keep the shadow defaults. */
     fun configure(context: Context) {
         traceDir = runCatching { context.getExternalFilesDir(null) }.getOrNull()
-        live = false
+        live = DEFAULT_LIVE
         softLimitMb = DEFAULT_SOFT_LIMIT_MB
         hardLimitMb = DEFAULT_HARD_LIMIT_MB
         runCatching {
             val f = File(context.getExternalFilesDir(null), "fork_gov.txt")
             if (f.exists()) {
                 val text = f.readText()
-                live = Regex("\\blive\\b").containsMatchIn(text)
+                if (Regex("\\bshadow\\b").containsMatchIn(text)) live = false
+                if (Regex("\\blive\\b").containsMatchIn(text)) live = true
                 Regex("soft=(\\d+)").find(text)?.groupValues?.get(1)?.toLongOrNull()?.let { softLimitMb = it }
                 Regex("hard=(\\d+)").find(text)?.groupValues?.get(1)?.toLongOrNull()?.let { hardLimitMb = it }
             }
@@ -133,11 +149,22 @@ object AddressSpaceGovernor {
         else -> configuredBudgetMb
     }
 
+    /**
+     * A brief spike over the soft limit (the first seconds of a 4K DV start touch ~2.7 GB) must not
+     * shrink the buffer: until [overSoftSamples] reaches [SUSTAIN_SAMPLES] the sample is clamped
+     * just under the soft limit. The hard limit is never delayed.
+     */
+    fun debounced(sample: Sample, overSoftSamples: Int, soft: Long, hard: Long): Sample =
+        if (sample.vmSizeMb >= hard || overSoftSamples >= SUSTAIN_SAMPLES || sample.vmSizeMb < soft) sample
+        else sample.copy(vmSizeMb = soft - 1)
+
     /** Called from the playback tick; samples every 2 s, logs each change, applies it when LIVE. */
     fun tick(now: Long, lc: BitrateAwareLoadControl?, player: ExoPlayer?, allocatedMb: Long, bufferedAheadSec: Long) {
         if (now - lastSampleAt < SAMPLE_INTERVAL_MS) return
         lastSampleAt = now
-        val sample = read() ?: return
+        val raw = read() ?: return
+        overSoftSamples = if (raw.vmSizeMb >= softLimitMb) overSoftSamples + 1 else 0
+        val sample = debounced(raw, overSoftSamples, softLimitMb, hardLimitMb)
         val configuredMb = lc?.constructedBudgetBytes()?.div(1024L * 1024L) ?: return
         val allow = wouldAllowBudgetMb(sample, configuredMb, allocatedMb, appliedBudgetMb, softLimitMb, hardLimitMb)
         val zone = when {
@@ -176,5 +203,6 @@ object AddressSpaceGovernor {
         lastSampleAt = 0L
         lastDecision = null
         appliedBudgetMb = -1L
+        overSoftSamples = 0
     }
 }

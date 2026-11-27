@@ -564,6 +564,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                 // Stay full here even on a DV display; first frame tightens only for confirmed DV7.
                 val budgetManaged = playerSettings.bufferBudgetManaged
                 com.nuvio.tv.core.player.AddressSpaceGovernor.configure(context)
+                com.nuvio.tv.core.player.MarathonTrace.configure(context)
                 val testBufferMb = com.nuvio.tv.core.player.AddressSpaceGovernor.testBufferMb(context)
                 val budgetMbEffective = if (testBufferMb != null) {
                     (testBufferMb - parallelOverheadMb).coerceAtLeast(MemoryBudget.MIN_BUFFER_MB)

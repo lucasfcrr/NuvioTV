@@ -6,6 +6,7 @@ import android.util.Log
 import androidx.media3.common.util.UnstableApi
 import com.nuvio.tv.core.debrid.DirectDebridPlayableResult
 import com.nuvio.tv.core.network.NetworkResult
+import com.nuvio.tv.core.player.MarathonTrace
 import com.nuvio.tv.core.player.StreamAutoPlaySelector
 import com.nuvio.tv.data.local.PlayerSettings
 import com.nuvio.tv.data.local.StreamAutoPlayMode
@@ -2157,6 +2158,10 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                 playerSettings.streamAutoPlayRegex
             }
             var selectedStream: Stream? = null
+            // Fork: which rule made the pick, for the marathon trace (fork_marathon.log).
+            var selectedVia = ""
+            var selectKind = ""
+            val traceStartedAt = System.currentTimeMillis()
             var lastSuccessData: List<AddonStreams>? = null
             var autoSelectTriggered = false
             var timeoutElapsed = false
@@ -2188,12 +2193,18 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                     preferBingeGroupInSelection = playerSettings.streamAutoPlayPreferBingeGroupForNextEpisode,
                     bingeGroupOnly = bingeGroupOnlyManualMode
                 )
-                if (picked != null) return picked
+                if (picked != null) {
+                    selectKind = "matched"
+                    return picked
+                }
                 // Fork: nothing matched the playing stream's group or file. Stay on the same source
                 // (e.g. the dubbed manifest) rather than opening the picker mid-marathon.
                 if (!playerSettings.streamAutoPlayPreferBingeGroupForNextEpisode) return null
                 return StreamAutoPlaySelector.selectSameSourceStream(allStreams, _uiState.value.currentStreamAddonName)
-                    ?.also { Log.i("NextEpisodeSource", "no binge/filename match; staying on source '${it.addonName}'") }
+                    ?.also {
+                        selectKind = "same-source-fallback"
+                        Log.i("NextEpisodeSource", "no binge/filename match; staying on source '${it.addonName}'")
+                    }
             }
 
             fun tryBingeGroupOnly(data: List<AddonStreams>): Stream? {
@@ -2261,9 +2272,10 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                 }
             }
 
-            fun recordSelection(candidate: Stream) {
+            fun recordSelection(candidate: Stream, via: String) {
                 autoSelectTriggered = true
                 selectedStream = candidate
+                selectedVia = if (via.startsWith("select")) "$via/$selectKind" else via
                 searchSettled.complete(Unit)
             }
 
@@ -2291,7 +2303,7 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                                         tryBingeGroupOnly(result.data)
                                     else -> null
                                 }
-                                if (candidate != null) recordSelection(candidate)
+                                if (candidate != null) recordSelection(candidate, if (timeoutElapsed) "select-update" else "binge-early")
                             }
                         }
                         is NetworkResult.Error -> lastError = result
@@ -2301,7 +2313,7 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                 // Every addon has responded: take whatever matched, then settle so
                 // the waiting code below resumes even if nothing was selected.
                 if (!autoSelectTriggered) {
-                    lastSuccessData?.let { data -> trySelectStream(data)?.let { recordSelection(it) } }
+                    lastSuccessData?.let { data -> trySelectStream(data)?.let { recordSelection(it, "select-final") } }
                 }
                 searchSettled.complete(Unit)
             }
@@ -2313,19 +2325,19 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                 timeoutElapsed = true
                 if (!autoSelectTriggered) {
                     // Filename match before full select — same release, any binge group.
-                    lastSuccessData?.let { tryFilenameOnly(it)?.let { s -> recordSelection(s) } }
+                    lastSuccessData?.let { tryFilenameOnly(it)?.let { s -> recordSelection(s, "filename-only") } }
                 }
                 if (!autoSelectTriggered) {
                     val data = lastSuccessData
                     if (data != null) {
-                        trySelectStream(data)?.let { recordSelection(it) }
+                        trySelectStream(data)?.let { recordSelection(it, "select-final") }
                     } else {
                         withTimeoutOrNull(timeoutMs) { searchSettled.await() }
                         if (!autoSelectTriggered) {
-                            lastSuccessData?.let { tryFilenameOnly(it)?.let { s -> recordSelection(s) } }
+                            lastSuccessData?.let { tryFilenameOnly(it)?.let { s -> recordSelection(s, "filename-only") } }
                         }
                         if (!autoSelectTriggered) {
-                            lastSuccessData?.let { trySelectStream(it)?.let { s -> recordSelection(s) } }
+                            lastSuccessData?.let { trySelectStream(it)?.let { s -> recordSelection(s, "select-final") } }
                         }
                     }
                 }
@@ -2334,19 +2346,19 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                 timeoutElapsed = true
                 withTimeoutOrNull(NEXT_EPISODE_HARD_TIMEOUT_MS) { searchSettled.await() }
                 if (!autoSelectTriggered) {
-                    lastSuccessData?.let { tryFilenameOnly(it)?.let { s -> recordSelection(s) } }
+                    lastSuccessData?.let { tryFilenameOnly(it)?.let { s -> recordSelection(s, "filename-only") } }
                 }
                 if (!autoSelectTriggered) {
-                    lastSuccessData?.let { data -> trySelectStream(data)?.let { recordSelection(it) } }
+                    lastSuccessData?.let { data -> trySelectStream(data)?.let { recordSelection(it, "select-final") } }
                 }
                 innerJob.cancel()
             } else {
                 withTimeoutOrNull(NEXT_EPISODE_HARD_TIMEOUT_MS) { searchSettled.await() }
                 if (!autoSelectTriggered) {
-                    lastSuccessData?.let { tryFilenameOnly(it)?.let { s -> recordSelection(s) } }
+                    lastSuccessData?.let { tryFilenameOnly(it)?.let { s -> recordSelection(s, "filename-only") } }
                 }
                 if (!autoSelectTriggered) {
-                    lastSuccessData?.let { data -> trySelectStream(data)?.let { recordSelection(it) } }
+                    lastSuccessData?.let { data -> trySelectStream(data)?.let { recordSelection(it, "select-final") } }
                 }
                 innerJob.cancel()
             }
@@ -2359,6 +2371,27 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                 )
             }
             val streamToPlay = resolveRun?.resolved
+            // Fork: one line per automatic next-episode decision (see MarathonTrace). Never allowed
+            // to affect the episode switch itself.
+            runCatching {
+                val picked = selectedStream
+                val fromAddon = _uiState.value.currentStreamAddonName
+                val candidates = lastSuccessData.orEmpty().joinToString(",") { "${it.addonName}:${it.streams.size}" }
+                val outcome = when {
+                    picked == null -> "NO_MATCH->picker"
+                    streamToPlay == null -> "UNRESOLVED->picker"
+                    else -> "PLAY"
+                }
+                MarathonTrace.log(
+                    "NEXT S${_uiState.value.currentSeason}E${_uiState.value.currentEpisode}" +
+                        "->S${nextVideo.season}E${nextVideo.episode} $outcome via=${selectedVia.ifEmpty { "-" }} " +
+                        "sameAddon=${picked?.addonName == fromAddon} " +
+                        "sameBg=${picked?.behaviorHints?.bingeGroup == currentStreamBingeGroup} " +
+                        "waitMs=${System.currentTimeMillis() - traceStartedAt} candidates=[$candidates] | " +
+                        "from: addon='$fromAddon' bg='${currentStreamBingeGroup.orEmpty()}' file='${currentFilename.orEmpty().take(90)}' | " +
+                        "picked: ${MarathonTrace.describe(picked)}"
+                )
+            }
             if (streamToPlay != null) {
                 val sourceName = (streamToPlay.name?.takeIf { it.isNotBlank() } ?: streamToPlay.addonName).trim()
                 for (remaining in 3 downTo 1) {
